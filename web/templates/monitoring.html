@@ -1,0 +1,559 @@
+{% extends "base.html" %}
+
+{% block title %}Monitoring - DispyCluster{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <!-- En-tête -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-white">Surveillance du Cluster</h1>
+            <p class="text-blue-100 mt-2">Métriques et graphiques de performance</p>
+        </div>
+    </div>
+    
+    <!-- Vue d'ensemble du cluster -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Nœuds en ligne</p>
+                    <p class="text-3xl font-bold text-gray-900" id="online-nodes">-</p>
+                </div>
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-server text-green-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">CPU moyen</p>
+                    <p class="text-3xl font-bold text-gray-900" id="avg-cpu">-</p>
+                </div>
+                <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-microchip text-yellow-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Mémoire moyenne</p>
+                    <p class="text-3xl font-bold text-gray-900" id="avg-memory">-</p>
+                </div>
+                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-memory text-purple-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Température</p>
+                    <p class="text-3xl font-bold text-gray-900" id="avg-temperature">-</p>
+                </div>
+                <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-thermometer-half text-red-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Graphiques historiques -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="card p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Utilisation CPU</h3>
+                <div class="flex items-center space-x-2">
+                    <select id="cpu-time-range" onchange="updateCpuChart()" class="border border-gray-300 rounded-lg px-2 py-1 text-sm">
+                        <option value="1">1h</option>
+                        <option value="6">6h</option>
+                        <option value="24" selected>24h</option>
+                        <option value="168">7j</option>
+                    </select>
+                </div>
+            </div>
+            <div style="height: 300px;">
+                <div id="cpu-chart-loading" class="flex items-center justify-center h-full">
+                    <div class="loading"></div>
+                    <span class="ml-3 text-gray-600">Chargement du graphique CPU...</span>
+                </div>
+                <canvas id="cpu-chart" style="display: none;"></canvas>
+            </div>
+        </div>
+        
+        <div class="card p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Utilisation Mémoire</h3>
+                <div class="flex items-center space-x-2">
+                    <select id="memory-time-range" onchange="updateMemoryChart()" class="border border-gray-300 rounded-lg px-2 py-1 text-sm">
+                        <option value="1">1h</option>
+                        <option value="6">6h</option>
+                        <option value="24" selected>24h</option>
+                        <option value="168">7j</option>
+                    </select>
+                </div>
+            </div>
+            <div style="height: 300px;">
+                <div id="memory-chart-loading" class="flex items-center justify-center h-full">
+                    <div class="loading"></div>
+                    <span class="ml-3 text-gray-600">Chargement du graphique Mémoire...</span>
+                </div>
+                <canvas id="memory-chart" style="display: none;"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Graphiques supplémentaires -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="card p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Utilisation Disque</h3>
+                <div class="flex items-center space-x-2">
+                    <select id="disk-time-range" onchange="updateDiskChart()" class="border border-gray-300 rounded-lg px-2 py-1 text-sm">
+                        <option value="1">1h</option>
+                        <option value="6">6h</option>
+                        <option value="24" selected>24h</option>
+                        <option value="168">7j</option>
+                    </select>
+                </div>
+            </div>
+            <div style="height: 300px;">
+                <div id="disk-chart-loading" class="flex items-center justify-center h-full">
+                    <div class="loading"></div>
+                    <span class="ml-3 text-gray-600">Chargement du graphique Disque...</span>
+                </div>
+                <canvas id="disk-chart" style="display: none;"></canvas>
+            </div>
+        </div>
+        
+        <div class="card p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Température</h3>
+                <div class="flex items-center space-x-2">
+                    <select id="temp-time-range" onchange="updateTempChart()" class="border border-gray-300 rounded-lg px-2 py-1 text-sm">
+                        <option value="1">1h</option>
+                        <option value="6">6h</option>
+                        <option value="24" selected>24h</option>
+                        <option value="168">7j</option>
+                    </select>
+                </div>
+            </div>
+            <div style="height: 300px;">
+                <div id="temp-chart-loading" class="flex items-center justify-center h-full">
+                    <div class="loading"></div>
+                    <span class="ml-3 text-gray-600">Chargement du graphique Température...</span>
+                </div>
+                <canvas id="temp-chart" style="display: none;"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Liste des nœuds -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-semibold text-gray-900">Nœuds du Cluster</h2>
+            <span id="nodes-count" class="text-sm text-gray-600">- nœuds</span>
+        </div>
+        
+        <div id="nodes-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div class="flex items-center justify-center py-8 col-span-full">
+                <div class="loading"></div>
+                <span class="ml-3 text-gray-600">Chargement...</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    let monitoringData = {};
+    let charts = {};
+    
+    // Charger les données de monitoring
+    async function loadMonitoringData() {
+        try {
+            console.log('Début du chargement des données de monitoring...');
+            
+            // 1. Charger les nœuds d'abord
+            console.log('Chargement des nœuds...');
+            const nodesResponse = await axios.get('/api/cluster/nodes');
+            monitoringData.nodes = nodesResponse.data;
+            updateNodesList();
+            
+            // 2. Calculer les métriques depuis les nœuds
+            console.log('Calcul des métriques d\'ensemble...');
+            updateMonitoringDisplay();
+            
+            // 3. Charger et afficher les graphiques
+            console.log('Chargement des graphiques...');
+            await loadCharts();
+            
+            console.log('Chargement terminé avec succès');
+            
+        } catch (error) {
+            console.error('Erreur lors du chargement des données de monitoring:', error);
+            showNotification('Erreur lors du chargement des données', 'error');
+        }
+    }
+    
+    // Charger tous les graphiques
+    async function loadCharts() {
+        try {
+            await Promise.all([
+                updateCpuChart(),
+                updateMemoryChart(),
+                updateDiskChart(),
+                updateTempChart()
+            ]);
+        } catch (error) {
+            console.error('Erreur lors du chargement des graphiques:', error);
+        }
+    }
+    
+    // Mettre à jour l'affichage des métriques
+    function updateMonitoringDisplay() {
+        // Calculer les statistiques à partir des nœuds
+        const nodes = monitoringData.nodes || [];
+        const onlineNodes = nodes.filter(node => (node.status === 'ready' || node.is_healthy));
+        
+        // Nœuds en ligne
+        document.getElementById('online-nodes').textContent = onlineNodes.length;
+        
+        // CPU moyen (en pourcentage)
+        const avgCpu = onlineNodes.length > 0 
+            ? onlineNodes.reduce((sum, node) => sum + (node.cpu_usage || 0), 0) / onlineNodes.length 
+            : 0;
+        document.getElementById('avg-cpu').textContent = avgCpu.toFixed(1) + '%';
+        
+        // Mémoire moyenne
+        const avgMemory = onlineNodes.length > 0 
+            ? onlineNodes.reduce((sum, node) => sum + (node.memory_usage || 0), 0) / onlineNodes.length 
+            : 0;
+        document.getElementById('avg-memory').textContent = avgMemory.toFixed(1) + '%';
+        
+        // Température moyenne
+        const tempNodes = onlineNodes.filter(node => node.temperature);
+        const avgTemp = tempNodes.length > 0 
+            ? tempNodes.reduce((sum, node) => sum + (node.temperature || 0), 0) / tempNodes.length 
+            : 0;
+        document.getElementById('avg-temperature').textContent = avgTemp.toFixed(1) + '°C';
+    }
+    
+    // Mettre à jour la liste des nœuds
+    function updateNodesList() {
+        const container = document.getElementById('nodes-list');
+        const nodes = monitoringData.nodes || [];
+        
+        document.getElementById('nodes-count').textContent = `${nodes.length} nœuds`;
+        
+        if (nodes.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8">
+                    <i class="fas fa-exclamation-triangle text-yellow-500 text-3xl mb-2"></i>
+                    <p class="text-gray-600">Aucun nœud trouvé</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = nodes.map(node => `
+            <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-3 h-3 rounded-full ${(node.status === 'ready' || node.is_healthy) ? 'bg-green-500' : 'bg-red-500'}"></div>
+                        <span class="font-medium text-gray-900">${node.node}</span>
+                    </div>
+                    <span class="px-2 py-1 text-xs rounded-full ${(node.status === 'ready' || node.is_healthy) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                        ${(node.status === 'ready' || node.is_healthy) ? 'En ligne' : 'Hors ligne'}
+                    </span>
+                </div>
+                
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-gray-600">CPU</span>
+                        <span class="text-sm font-semibold">${(node.cpu_usage || 0).toFixed(1)}%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                        <div class="bg-yellow-500 h-2 rounded-full transition-all duration-300" 
+                             style="width: ${Math.min(node.cpu_usage || 0, 100)}%"></div>
+                    </div>
+                    
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-gray-600">RAM</span>
+                        <span class="text-sm font-semibold">${(node.memory_usage || 0).toFixed(1)}%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                        <div class="bg-purple-500 h-2 rounded-full transition-all duration-300" 
+                             style="width: ${Math.min(node.memory_usage || 0, 100)}%"></div>
+                    </div>
+                    
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-gray-600">Disque</span>
+                        <span class="text-sm font-semibold">${(node.disk_usage || 0).toFixed(1)}%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                        <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" 
+                             style="width: ${Math.min(node.disk_usage || 0, 100)}%"></div>
+                    </div>
+                    
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-gray-600">Temp</span>
+                        <span class="text-sm font-semibold">${node.temperature?.toFixed(1) || '-'}°C</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                        <div class="bg-red-500 h-2 rounded-full transition-all duration-300" 
+                             style="width: ${node.temperature ? Math.min((node.temperature / 80) * 100, 100) : 0}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mt-3 pt-3 border-t border-gray-200">
+                    <div class="text-xs text-gray-500">
+                        <div class="flex items-center justify-between">
+                            <span><i class="fas fa-clock mr-1"></i>${node.last_update ? new Date(node.last_update).toLocaleTimeString('fr-FR') : 'Inconnue'}</span>
+                            ${node.uptime_hours ? `<span><i class="fas fa-history mr-1"></i>${node.uptime_hours.toFixed(1)}h</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Mettre à jour les graphiques
+    async function updateCharts() {
+        await updateCpuChart();
+        await updateMemoryChart();
+        await updateDiskChart();
+        await updateTempChart();
+    }
+        
+        // Graphique CPU
+    async function updateCpuChart() {
+        const hours = document.getElementById('cpu-time-range').value;
+        try {
+            const response = await axios.get(`/api/graphs/cpu-history?hours=${hours}`);
+            const data = response.data.data || [];
+            
+            // Masquer l'indicateur de chargement et afficher le canvas
+            document.getElementById('cpu-chart-loading').style.display = 'none';
+            document.getElementById('cpu-chart').style.display = 'block';
+            
+            const labels = data.map(point => new Date(point.timestamp).toLocaleTimeString('fr-FR'));
+            const cpuData = data.map(point => point.avg_cpu || point.cpu_usage || 0);
+            
+            updateChart('cpu-chart', {
+            type: 'line',
+            data: {
+                    labels: labels,
+                datasets: [{
+                    label: 'CPU Usage (%)',
+                        data: cpuData,
+                    borderColor: 'rgba(251, 191, 36, 1)',
+                    backgroundColor: 'rgba(251, 191, 36, 0.2)',
+                        tension: 0.4,
+                        fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                    maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                color: '#374151'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Erreur chargement graphique CPU:', error);
+        }
+    }
+        
+        // Graphique Mémoire
+    async function updateMemoryChart() {
+        const hours = document.getElementById('memory-time-range').value;
+        try {
+            const response = await axios.get(`/api/graphs/memory-history?hours=${hours}`);
+            const data = response.data.data || [];
+            
+            // Masquer l'indicateur de chargement et afficher le canvas
+            document.getElementById('memory-chart-loading').style.display = 'none';
+            document.getElementById('memory-chart').style.display = 'block';
+            
+            const labels = data.map(point => new Date(point.timestamp).toLocaleTimeString('fr-FR'));
+            const memoryData = data.map(point => point.avg_memory || point.memory_usage || 0);
+            
+            updateChart('memory-chart', {
+            type: 'line',
+            data: {
+                    labels: labels,
+                datasets: [{
+                    label: 'Memory Usage (%)',
+                        data: memoryData,
+                    borderColor: 'rgba(147, 51, 234, 1)',
+                    backgroundColor: 'rgba(147, 51, 234, 0.2)',
+                        tension: 0.4,
+                        fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                    maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                color: '#374151'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Erreur chargement graphique mémoire:', error);
+        }
+    }
+    
+    // Graphique Disque
+    async function updateDiskChart() {
+        const hours = document.getElementById('disk-time-range').value;
+        try {
+            const response = await axios.get(`/api/graphs/disk-history?hours=${hours}`);
+            const data = response.data.data || [];
+            
+            // Masquer l'indicateur de chargement et afficher le canvas
+            document.getElementById('disk-chart-loading').style.display = 'none';
+            document.getElementById('disk-chart').style.display = 'block';
+            
+            const labels = data.map(point => new Date(point.timestamp).toLocaleTimeString('fr-FR'));
+            const diskData = data.map(point => point.avg_disk || point.disk_usage || 0);
+            
+            updateChart('disk-chart', {
+                type: 'line',
+            data: {
+                    labels: labels,
+                datasets: [{
+                        label: 'Disk Usage (%)',
+                        data: diskData,
+                        borderColor: 'rgba(16, 185, 129, 1)',
+                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                        tension: 0.4,
+                        fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                    maintainAspectRatio: false,
+                scales: {
+                    y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                color: '#374151'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Erreur chargement graphique disque:', error);
+        }
+    }
+    
+    // Graphique Température
+    async function updateTempChart() {
+        const hours = document.getElementById('temp-time-range').value;
+        try {
+            const response = await axios.get(`/api/graphs/temperature-history?hours=${hours}`);
+            const data = response.data.data || [];
+            
+            // Masquer l'indicateur de chargement et afficher le canvas
+            document.getElementById('temp-chart-loading').style.display = 'none';
+            document.getElementById('temp-chart').style.display = 'block';
+            
+            const labels = data.map(point => new Date(point.timestamp).toLocaleTimeString('fr-FR'));
+            const tempData = data.map(point => point.avg_temperature || point.temperature || 0);
+            
+            updateChart('temp-chart', {
+                type: 'line',
+            data: {
+                    labels: labels,
+                datasets: [{
+                        label: 'Temperature (°C)',
+                        data: tempData,
+                        borderColor: 'rgba(239, 68, 68, 1)',
+                        backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                        tension: 0.4,
+                        fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                    maintainAspectRatio: false,
+                scales: {
+                    y: {
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                color: '#374151'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Erreur chargement graphique température:', error);
+        }
+    }
+    
+    // Mettre à jour un graphique
+    function updateChart(canvasId, config) {
+        const canvas = document.getElementById(canvasId);
+        const ctx = canvas.getContext('2d');
+        
+        if (charts[canvasId]) {
+            charts[canvasId].destroy();
+        }
+        
+        charts[canvasId] = new Chart(ctx, config);
+    }
+    
+    // Actions (supprimées - pas nécessaires)
+    
+    // Charger les données au démarrage
+    document.addEventListener('DOMContentLoaded', loadMonitoringData);
+    
+    // Rafraîchir automatiquement toutes les 10 secondes
+    setInterval(loadMonitoringData, 10000);
+</script>
+{% endblock %}

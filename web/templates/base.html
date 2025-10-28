@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DispyCluster{% endblock %}</title>
+    
+    <!-- CSS moderne et épuré -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --secondary: #64748b;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #1e293b;
+            --light: #f8fafc;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .glass {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .nav-link {
+            transition: all 0.3s ease;
+            border-radius: 8px;
+        }
+        
+        .nav-link:hover {
+            background: rgba(59, 130, 246, 0.1);
+            transform: translateX(4px);
+        }
+        
+        .nav-link.active {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--primary);
+        }
+        
+        .status-online { color: var(--success); }
+        .status-offline { color: var(--danger); }
+        .status-warning { color: var(--warning); }
+        
+        .metric-card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(59, 130, 246, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="glass fixed top-0 left-0 right-0 z-50 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-server text-white text-lg"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-white">DispyCluster</h1>
+            </div>
+            
+            <div class="hidden md:flex items-center space-x-1">
+                <a href="/" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/' %}active{% endif %}">
+                    <i class="fas fa-tachometer-alt mr-2"></i>Dashboard
+                </a>
+                <a href="/nodes" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/nodes' %}active{% endif %}">
+                    <i class="fas fa-server mr-2"></i>Nœuds
+                </a>
+                <a href="/jobs" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/jobs' %}active{% endif %}">
+                    <i class="fas fa-tasks mr-2"></i>Jobs
+                </a>
+                <a href="/monitoring" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/monitoring' %}active{% endif %}">
+                    <i class="fas fa-chart-line mr-2"></i>Monitoring
+                </a>
+                <a href="/tests" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/tests' %}active{% endif %}">
+                    <i class="fas fa-vial mr-2"></i>Tests
+                </a>
+            </div>
+            
+            <div class="flex items-center space-x-4">
+                <div class="hidden md:block">
+                    <span class="text-white text-sm">Status:</span>
+                    <span id="cluster-status" class="ml-2 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <i class="fas fa-circle mr-1"></i>En ligne
+                    </span>
+                </div>
+                <button class="md:hidden text-white" onclick="toggleMobileMenu()">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Menu mobile -->
+        <div id="mobile-menu" class="md:hidden mt-4 hidden">
+            <div class="flex flex-col space-y-2">
+                <a href="/" class="nav-link px-4 py-2 text-white rounded-lg">
+                    <i class="fas fa-tachometer-alt mr-2"></i>Dashboard
+                </a>
+                <a href="/nodes" class="nav-link px-4 py-2 text-white rounded-lg">
+                    <i class="fas fa-server mr-2"></i>Nœuds
+                </a>
+                <a href="/jobs" class="nav-link px-4 py-2 text-white rounded-lg">
+                    <i class="fas fa-tasks mr-2"></i>Jobs
+                </a>
+                <a href="/monitoring" class="nav-link px-4 py-2 text-white rounded-lg">
+                    <i class="fas fa-chart-line mr-2"></i>Monitoring
+                </a>
+                <a href="/tests" class="nav-link px-4 py-2 text-white rounded-lg">
+                    <i class="fas fa-vial mr-2"></i>Tests
+                </a>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Contenu principal -->
+    <main class="pt-24 pb-8">
+        <div class="max-w-7xl mx-auto px-6">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+    
+    <!-- Notifications -->
+    <div id="notifications" class="fixed top-20 right-6 z-50 space-y-2"></div>
+    
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.27.2/axios.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    
+    <script>
+        // Menu mobile
+        function toggleMobileMenu() {
+            const menu = document.getElementById('mobile-menu');
+            menu.classList.toggle('hidden');
+        }
+        
+        // Notifications
+        function showNotification(message, type = 'info') {
+            const container = document.getElementById('notifications');
+            const notification = document.createElement('div');
+            
+            const colors = {
+                'success': 'bg-green-500',
+                'error': 'bg-red-500',
+                'warning': 'bg-yellow-500',
+                'info': 'bg-blue-500'
+            };
+            
+            notification.className = `${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg transform transition-all duration-300 translate-x-full`;
+            notification.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-white hover:text-gray-200">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+            
+            container.appendChild(notification);
+            
+            // Animation d'entrée
+            setTimeout(() => {
+                notification.classList.remove('translate-x-full');
+            }, 100);
+            
+            // Auto-remove après 5 secondes
+            setTimeout(() => {
+                notification.classList.add('translate-x-full');
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
+        
+        // Vérification du statut du cluster
+        async function checkClusterStatus() {
+            try {
+                const response = await axios.get('/api/health');
+                const statusElement = document.getElementById('cluster-status');
+                
+                if (response.data.status === 'healthy') {
+                    statusElement.className = 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800';
+                    statusElement.innerHTML = '<i class="fas fa-circle mr-1"></i>En ligne';
+                } else {
+                    statusElement.className = 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800';
+                    statusElement.innerHTML = '<i class="fas fa-circle mr-1"></i>Hors ligne';
+                }
+            } catch (error) {
+                const statusElement = document.getElementById('cluster-status');
+                statusElement.className = 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800';
+                statusElement.innerHTML = '<i class="fas fa-circle mr-1"></i>Erreur';
+            }
+        }
+        
+        // Vérifier le statut toutes les 30 secondes
+        setInterval(checkClusterStatus, 30000);
+        
+        // Vérifier au chargement
+        document.addEventListener('DOMContentLoaded', checkClusterStatus);
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

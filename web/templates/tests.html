@@ -1,0 +1,541 @@
+{% extends "base.html" %}
+
+{% block title %}Tests en Temps Réel - DispyCluster{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <!-- En-tête -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-white">Tests en Temps Réel</h1>
+            <p class="text-blue-100 mt-2">Tests automatisés du cluster avec monitoring live</p>
+        </div>
+        <div class="flex items-center space-x-4">
+            <button onclick="runAllTests()" class="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition-colors">
+                <i class="fas fa-play mr-2"></i>Lancer Tous les Tests
+            </button>
+            <button onclick="stopAllTests()" class="bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700 transition-colors">
+                <i class="fas fa-stop mr-2"></i>Arrêter
+            </button>
+        </div>
+    </div>
+    
+    <!-- Statut global -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Tests Actifs</p>
+                    <p class="text-3xl font-bold text-gray-900" id="active-tests">0</p>
+                </div>
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-vial text-blue-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Tests Réussis</p>
+                    <p class="text-3xl font-bold text-gray-900" id="passed-tests">0</p>
+                </div>
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Tests Échoués</p>
+                    <p class="text-3xl font-bold text-gray-900" id="failed-tests">0</p>
+                </div>
+                <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-times-circle text-red-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Taux de Réussite</p>
+                    <p class="text-3xl font-bold text-gray-900" id="success-rate">0%</p>
+                </div>
+                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-percentage text-purple-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tests disponibles -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-semibold text-gray-900">Tests Disponibles</h2>
+            <div class="flex items-center space-x-4">
+                <button onclick="refreshTests()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <span class="text-sm text-gray-500" id="tests-count">0 tests</span>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="tests-grid">
+            <!-- Tests seront chargés dynamiquement -->
+        </div>
+    </div>
+    
+    <!-- Tests en cours -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-semibold text-gray-900">Tests en Cours</h2>
+            <div class="flex items-center space-x-4">
+                <button onclick="clearCompletedTests()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-trash"></i>
+                </button>
+                <span class="text-sm text-gray-500" id="running-tests-count">0 tests en cours</span>
+            </div>
+        </div>
+        
+        <div id="running-tests">
+            <div class="text-center py-8 text-gray-500">
+                <i class="fas fa-vial text-4xl mb-4"></i>
+                <p>Aucun test en cours</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Résultats des tests -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-semibold text-gray-900">Résultats des Tests</h2>
+            <div class="flex items-center space-x-4">
+                <button onclick="exportResults()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-download"></i>
+                </button>
+                <button onclick="clearResults()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div id="test-results">
+            <div class="text-center py-8 text-gray-500">
+                <i class="fas fa-chart-line text-4xl mb-4"></i>
+                <p>Aucun résultat disponible</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Monitoring en temps réel -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="card p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Performance des Tests</h3>
+            <canvas id="performance-chart" width="400" height="200"></canvas>
+        </div>
+        
+        <div class="card p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Statut du Cluster</h3>
+            <div id="cluster-status">
+                <div class="flex items-center justify-center py-8">
+                    <div class="loading"></div>
+                    <span class="ml-3 text-gray-600">Chargement...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let tests = [];
+    let runningTests = [];
+    let testResults = [];
+    let performanceChart = null;
+    let testInterval = null;
+    
+    // Tests disponibles (chargés depuis l'API)
+    let availableTests = [];
+    
+    // Charger les tests disponibles depuis l'API
+    async function loadAvailableTests() {
+        try {
+            const response = await axios.get('/api/tests/available');
+            availableTests = response.data.tests;
+            
+            console.log('Available tests:', availableTests);
+            
+            const container = document.getElementById('tests-grid');
+            container.innerHTML = availableTests.map(test => `
+                <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="font-semibold text-gray-900">${test.name}</h3>
+                        <span class="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            ${test.category}
+                        </span>
+                    </div>
+                    
+                    <p class="text-sm text-gray-600 mb-3">${test.description}</p>
+                    
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-gray-500">Durée: ${Math.round(test.estimated_duration / 60)} min</span>
+                        <button onclick="runTest('${test.id}')" 
+                                class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
+                            <i class="fas fa-play mr-1"></i>Lancer
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+            
+            document.getElementById('tests-count').textContent = `${availableTests.length} tests`;
+        } catch (error) {
+            console.error('Erreur lors du chargement des tests:', error);
+            showNotification('Erreur lors du chargement des tests', 'error');
+        }
+    }
+    
+    // Lancer un test spécifique
+    async function runTest(testId) {
+        try {
+            const response = await axios.post(`/api/tests/run/${testId}`);
+            showNotification(`Test ${testId} lancé`, 'success');
+            
+            // Rafraîchir les données
+            await loadRunningTests();
+            await loadTestResults();
+            await loadTestStats();
+            
+        } catch (error) {
+            console.error('Erreur lors du lancement du test:', error);
+            showNotification(`Erreur lors du lancement du test ${testId}`, 'error');
+        }
+    }
+    
+    // Simuler l'exécution d'un test
+    async function simulateTest(testId) {
+        const test = availableTests.find(t => t.id === testId);
+        const duration = Math.random() * 30000 + 10000; // 10-40 secondes
+        
+        // Simuler la progression
+        for (let i = 0; i <= 100; i += 10) {
+            await new Promise(resolve => setTimeout(resolve, duration / 10));
+            
+            const runningTest = runningTests.find(t => t.id === testId);
+            if (runningTest) {
+                runningTest.progress = i;
+                updateRunningTests();
+            }
+        }
+        
+        // Simuler le résultat (90% de succès)
+        const success = Math.random() > 0.1;
+        
+        return {
+            success,
+            message: success ? 'Test terminé avec succès' : 'Test échoué',
+            details: success ? 'Tous les composants fonctionnent correctement' : 'Erreur détectée dans le cluster',
+            metrics: {
+                duration: duration,
+                nodes_tested: Math.floor(Math.random() * 7) + 1,
+                tasks_completed: Math.floor(Math.random() * 50) + 10
+            }
+        };
+    }
+    
+    // Lancer tous les tests
+    async function runAllTests() {
+        try {
+            const response = await axios.post('/api/tests/run-all');
+            showNotification(`${response.data.launched_tests.length} tests lancés`, 'success');
+            
+            // Rafraîchir les données
+            await loadRunningTests();
+            await loadTestResults();
+            await loadTestStats();
+            
+        } catch (error) {
+            console.error('Erreur lors du lancement des tests:', error);
+            showNotification('Erreur lors du lancement des tests', 'error');
+        }
+    }
+    
+    // Arrêter tous les tests
+    async function stopAllTests() {
+        try {
+            const response = await axios.post('/api/tests/stop-all');
+            showNotification(response.data.message, 'info');
+            
+            // Rafraîchir les données
+            await loadRunningTests();
+            await loadTestResults();
+            await loadTestStats();
+            
+        } catch (error) {
+            console.error('Erreur lors de l\'arrêt des tests:', error);
+            showNotification('Erreur lors de l\'arrêt des tests', 'error');
+        }
+    }
+    
+    // Charger les tests en cours
+    async function loadRunningTests() {
+        try {
+            const response = await axios.get('/api/tests/running');
+            runningTests = response.data.running_tests;
+            updateRunningTests();
+        } catch (error) {
+            console.error('Erreur lors du chargement des tests en cours:', error);
+        }
+    }
+    
+    // Charger les résultats des tests
+    async function loadTestResults() {
+        try {
+            const response = await axios.get('/api/tests/results');
+            testResults = response.data.results;
+            updateTestResults();
+        } catch (error) {
+            console.error('Erreur lors du chargement des résultats:', error);
+        }
+    }
+    
+    // Charger les statistiques des tests
+    async function loadTestStats() {
+        try {
+            const response = await axios.get('/api/tests/stats');
+            const stats = response.data;
+            
+            document.getElementById('active-tests').textContent = stats.running_tests;
+            document.getElementById('passed-tests').textContent = stats.passed_tests;
+            document.getElementById('failed-tests').textContent = stats.failed_tests;
+            document.getElementById('success-rate').textContent = stats.success_rate + '%';
+        } catch (error) {
+            console.error('Erreur lors du chargement des statistiques:', error);
+        }
+    }
+    
+    // Mettre à jour les tests en cours
+    function updateRunningTests() {
+        const container = document.getElementById('running-tests');
+        const countElement = document.getElementById('running-tests-count');
+        
+        countElement.textContent = `${runningTests.length} test${runningTests.length > 1 ? 's' : ''} en cours`;
+        
+        if (runningTests.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-vial text-4xl mb-4"></i>
+                    <p>Aucun test en cours</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = runningTests.map(test => `
+            <div class="border border-gray-200 rounded-lg p-4 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-semibold text-gray-900">${test.name}</h3>
+                    <span class="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        En cours
+                    </span>
+                </div>
+                
+                <div class="mb-2">
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                        <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                             style="width: ${test.progress}%"></div>
+                    </div>
+                    <div class="text-sm text-gray-500 mt-1">${test.progress}%</div>
+                </div>
+                
+                <div class="text-sm text-gray-600">
+                    Débuté: ${test.startTime.toLocaleTimeString()}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Mettre à jour les résultats des tests
+    function updateTestResults() {
+        const container = document.getElementById('test-results');
+        
+        if (testResults.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-chart-line text-4xl mb-4"></i>
+                    <p>Aucun résultat disponible</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = testResults.slice(-10).reverse().map(result => `
+            <div class="border border-gray-200 rounded-lg p-4 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-semibold text-gray-900">${result.name}</h3>
+                    <span class="px-2 py-1 rounded-full text-xs font-medium ${
+                        result.status === 'passed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                    }">
+                        ${result.status === 'passed' ? 'Réussi' : 'Échoué'}
+                    </span>
+                </div>
+                
+                <div class="text-sm text-gray-600 mb-2">
+                    ${result.result.message}
+                </div>
+                
+                <div class="flex items-center justify-between text-sm text-gray-500">
+                    <span>Durée: ${Math.round(result.duration / 1000)}s</span>
+                    <span>Terminé: ${result.endTime.toLocaleTimeString()}</span>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Mettre à jour les statistiques
+    function updateTestStats() {
+        const totalTests = testResults.length;
+        const passedTests = testResults.filter(r => r.status === 'passed').length;
+        const failedTests = testResults.filter(r => r.status === 'failed').length;
+        const successRate = totalTests > 0 ? (passedTests / totalTests * 100).toFixed(1) : 0;
+        
+        document.getElementById('active-tests').textContent = runningTests.length;
+        document.getElementById('passed-tests').textContent = passedTests;
+        document.getElementById('failed-tests').textContent = failedTests;
+        document.getElementById('success-rate').textContent = successRate + '%';
+    }
+    
+    // Mettre à jour le graphique de performance
+    function updatePerformanceChart() {
+        if (!performanceChart) {
+            const ctx = document.getElementById('performance-chart').getContext('2d');
+            performanceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Tests Réussis',
+                        data: [],
+                        borderColor: 'rgb(34, 197, 94)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Tests Échoués',
+                        data: [],
+                        borderColor: 'rgb(239, 68, 68)',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Mettre à jour les données
+        const labels = testResults.slice(-20).map((_, i) => `Test ${i + 1}`);
+        const passedData = testResults.slice(-20).map(r => r.status === 'passed' ? 1 : 0);
+        const failedData = testResults.slice(-20).map(r => r.status === 'failed' ? 1 : 0);
+        
+        performanceChart.data.labels = labels;
+        performanceChart.data.datasets[0].data = passedData;
+        performanceChart.data.datasets[1].data = failedData;
+        performanceChart.update();
+    }
+    
+    // Rafraîchir les tests
+    function refreshTests() {
+        loadAvailableTests();
+        showNotification('Tests rafraîchis', 'success');
+    }
+    
+    // Nettoyer les tests terminés
+    async function clearCompletedTests() {
+        try {
+            const response = await axios.post('/api/tests/stop-all');
+            showNotification('Tests terminés nettoyés', 'info');
+            
+            // Rafraîchir les données
+            await loadRunningTests();
+            await loadTestResults();
+            await loadTestStats();
+            
+        } catch (error) {
+            console.error('Erreur lors du nettoyage:', error);
+            showNotification('Erreur lors du nettoyage', 'error');
+        }
+    }
+    
+    // Nettoyer les résultats
+    async function clearResults() {
+        try {
+            const response = await axios.delete('/api/tests/results');
+            showNotification('Résultats nettoyés', 'info');
+            
+            // Rafraîchir les données
+            await loadTestResults();
+            await loadTestStats();
+            updatePerformanceChart();
+            
+        } catch (error) {
+            console.error('Erreur lors du nettoyage des résultats:', error);
+            showNotification('Erreur lors du nettoyage des résultats', 'error');
+        }
+    }
+    
+    // Exporter les résultats
+    async function exportResults() {
+        try {
+            const response = await axios.get('/api/tests/export?format=json');
+            const data = response.data.data;
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `dispycluster-tests-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showNotification('Résultats exportés', 'success');
+            
+        } catch (error) {
+            console.error('Erreur lors de l\'export:', error);
+            showNotification('Erreur lors de l\'export', 'error');
+        }
+    }
+    
+    // Charger les tests au démarrage
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadAvailableTests();
+        await loadRunningTests();
+        await loadTestResults();
+        await loadTestStats();
+        
+        // Mise à jour automatique toutes les 5 secondes
+        testInterval = setInterval(async () => {
+            await loadRunningTests();
+            await loadTestResults();
+            await loadTestStats();
+        }, 5000);
+    });
+    
+    // Nettoyage à la fermeture
+    window.addEventListener('beforeunload', () => {
+        if (testInterval) {
+            clearInterval(testInterval);
+        }
+    });
+</script>
+{% endblock %}

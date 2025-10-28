@@ -1,0 +1,522 @@
+{% extends "base.html" %}
+
+{% block title %}Jobs - DispyCluster{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <!-- En-tête -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-white">Gestion des Jobs</h1>
+            <p class="text-blue-100 mt-2">Créer et surveiller les tâches du cluster</p>
+        </div>
+        <button onclick="showCreateJobModal()" class="bg-white text-blue-600 px-6 py-3 rounded-lg font-medium hover:bg-blue-50 transition-colors">
+            <i class="fas fa-plus mr-2"></i>Nouveau Job
+        </button>
+    </div>
+    
+    <!-- Filtres et recherche -->
+    <div class="card p-6">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+            <div class="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm font-medium text-gray-700">Statut:</label>
+                    <select id="status-filter" onchange="filterJobs()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                        <option value="">Tous</option>
+                        <option value="pending">En attente</option>
+                        <option value="running">En cours</option>
+                        <option value="completed">Terminé</option>
+                        <option value="failed">Échoué</option>
+                    </select>
+                </div>
+                
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm font-medium text-gray-700">Type:</label>
+                    <select id="type-filter" onchange="filterJobs()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                        <option value="">Tous</option>
+                        <option value="scraping">Scraping</option>
+                        <option value="processing">Traitement</option>
+                        <option value="analysis">Analyse</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <div class="relative">
+                    <input type="text" id="search-input" placeholder="Rechercher..." 
+                           class="border border-gray-300 rounded-lg px-4 py-2 pl-10 text-sm w-64"
+                           onkeyup="filterJobs()">
+                    <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                </div>
+                <button onclick="refreshJobs()" class="text-gray-500 hover:text-gray-700 p-2">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Onglets -->
+    <div class="card p-6">
+        <div class="border-b border-gray-200 mb-6">
+            <nav class="flex space-x-4">
+                <button onclick="showTab('sqlite')" id="tab-sqlite" class="px-4 py-2 border-b-2 border-blue-600 text-blue-600 font-medium">
+                    Jobs SQLite
+                </button>
+                <button onclick="showTab('dispy')" id="tab-dispy" class="px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700">
+                    Jobs Dispy
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Liste des jobs SQLite -->
+    <div id="jobs-sqlite-section">
+        <div class="card p-6">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-semibold text-gray-900">Jobs SQLite</h2>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-500" id="jobs-count">0 jobs</span>
+                    <button onclick="refreshJobs()" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div id="jobs-list">
+                <div class="flex items-center justify-center py-12">
+                    <div class="loading"></div>
+                    <span class="ml-3 text-gray-600">Chargement des jobs...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Liste des jobs Dispy -->
+    <div id="jobs-dispy-section" class="hidden">
+        <div class="card p-6">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-semibold text-gray-900">Jobs Dispy</h2>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-500" id="dispy-jobs-count">0 jobs</span>
+                    <button onclick="refreshDispyJobs()" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div id="dispy-jobs-list">
+                <div class="flex items-center justify-center py-12">
+                    <div class="loading"></div>
+                    <span class="ml-3 text-gray-600">Chargement des jobs...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de création de job -->
+<div id="create-job-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white rounded-lg max-w-md w-full p-6">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-semibold text-gray-900">Nouveau Job</h3>
+                <button onclick="hideCreateJobModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form id="create-job-form" onsubmit="createJob(event)">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Nom du job</label>
+                        <input type="text" id="job-name" required 
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Type</label>
+                        <select id="job-type" required 
+                                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Sélectionner un type</option>
+                            <option value="scraping">Scraping Web</option>
+                            <option value="processing">Traitement de données</option>
+                            <option value="analysis">Analyse</option>
+                        </select>
+                    </div>
+                    
+                    <div id="scraping-params" class="hidden">
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">URL de départ</label>
+                                <input type="url" id="start-url" 
+                                       class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       placeholder="https://example.com">
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Pages max</label>
+                                    <input type="number" id="max-pages" value="10" min="1" max="100"
+                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Timeout (s)</label>
+                                    <input type="number" id="timeout-s" value="30" min="5" max="300"
+                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center">
+                                <input type="checkbox" id="same-origin-only" checked 
+                                       class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                <label for="same-origin-only" class="ml-2 text-sm text-gray-700">
+                                    Même origine uniquement
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Priorité</label>
+                        <select id="job-priority" 
+                                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="1">Faible</option>
+                            <option value="2" selected>Normale</option>
+                            <option value="3">Élevée</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" onclick="hideCreateJobModal()" 
+                            class="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                        Annuler
+                    </button>
+                    <button type="submit" 
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                        Créer
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let allJobs = [];
+    let filteredJobs = [];
+    
+    // Charger les jobs
+    async function loadJobs() {
+        try {
+            const response = await axios.get('/api/jobs');
+            allJobs = response.data;
+            filterJobs();
+        } catch (error) {
+            console.error('Erreur lors du chargement des jobs:', error);
+            showNotification('Erreur lors du chargement des jobs', 'error');
+        }
+    }
+    
+    // Filtrer les jobs
+    function filterJobs() {
+        const statusFilter = document.getElementById('status-filter').value;
+        const typeFilter = document.getElementById('type-filter').value;
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        
+        filteredJobs = allJobs.filter(job => {
+            const matchesStatus = !statusFilter || job.status === statusFilter;
+            const matchesType = !typeFilter || job.job_type === typeFilter;
+            const matchesSearch = !searchTerm || 
+                job.name.toLowerCase().includes(searchTerm) ||
+                job.job_type.toLowerCase().includes(searchTerm);
+            
+            return matchesStatus && matchesType && matchesSearch;
+        });
+        
+        updateJobsList();
+    }
+    
+    // Mettre à jour la liste des jobs
+    function updateJobsList() {
+        const container = document.getElementById('jobs-list');
+        const countElement = document.getElementById('jobs-count');
+        
+        countElement.textContent = `${filteredJobs.length} job${filteredJobs.length > 1 ? 's' : ''}`;
+        
+        if (filteredJobs.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-12">
+                    <i class="fas fa-tasks text-gray-300 text-4xl mb-4"></i>
+                    <p class="text-gray-500">Aucun job trouvé</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = filteredJobs.map(job => `
+            <div class="border border-gray-200 rounded-lg p-4 mb-4 hover:shadow-md transition-shadow">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-3">
+                            <h3 class="font-semibold text-gray-900">${job.name}</h3>
+                            <span class="px-2 py-1 rounded-full text-xs font-medium ${
+                                job.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                job.status === 'running' ? 'bg-blue-100 text-blue-800' :
+                                job.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                'bg-gray-100 text-gray-800'
+                            }">
+                                ${job.status === 'completed' ? 'Terminé' :
+                                  job.status === 'running' ? 'En cours' :
+                                  job.status === 'failed' ? 'Échoué' :
+                                  'En attente'}
+                            </span>
+                            <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">
+                                ${job.job_type}
+                            </span>
+                        </div>
+                        
+                        <div class="mt-2 text-sm text-gray-600">
+                            <div class="flex items-center space-x-4">
+                                <span><i class="fas fa-clock mr-1"></i>Créé: ${new Date(job.created_at).toLocaleString()}</span>
+                                ${job.node ? `<span><i class="fas fa-server mr-1"></i>Nœud: ${job.node}</span>` : ''}
+                                ${job.progress > 0 ? `<span><i class="fas fa-percentage mr-1"></i>Progrès: ${job.progress}%</span>` : ''}
+                            </div>
+                        </div>
+                        
+                        ${job.progress > 0 ? `
+                            <div class="mt-3">
+                                <div class="w-full bg-gray-200 rounded-full h-2">
+                                    <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                                         style="width: ${job.progress}%"></div>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    <div class="flex items-center space-x-2">
+                        <button onclick="viewJobDetails('${job.id}')" 
+                                class="text-blue-600 hover:text-blue-800 p-2">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        ${job.status === 'running' ? `
+                            <button onclick="cancelJob('${job.id}')" 
+                                    class="text-red-600 hover:text-red-800 p-2">
+                                <i class="fas fa-stop"></i>
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Afficher le modal de création
+    function showCreateJobModal() {
+        document.getElementById('create-job-modal').classList.remove('hidden');
+    }
+    
+    // Masquer le modal de création
+    function hideCreateJobModal() {
+        document.getElementById('create-job-modal').classList.add('hidden');
+        document.getElementById('create-job-form').reset();
+        document.getElementById('scraping-params').classList.add('hidden');
+    }
+    
+    // Gérer le changement de type de job
+    document.getElementById('job-type').addEventListener('change', function() {
+        const scrapingParams = document.getElementById('scraping-params');
+        if (this.value === 'scraping') {
+            scrapingParams.classList.remove('hidden');
+        } else {
+            scrapingParams.classList.add('hidden');
+        }
+    });
+    
+    // Créer un nouveau job
+    async function createJob(event) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const jobData = {
+            name: document.getElementById('job-name').value,
+            job_type: document.getElementById('job-type').value,
+            parameters: {},
+            priority: parseInt(document.getElementById('job-priority').value)
+        };
+        
+        // Ajouter les paramètres spécifiques selon le type
+        if (jobData.job_type === 'scraping') {
+            jobData.parameters = {
+                start_url: document.getElementById('start-url').value,
+                max_pages: parseInt(document.getElementById('max-pages').value),
+                timeout_s: parseInt(document.getElementById('timeout-s').value),
+                same_origin_only: document.getElementById('same-origin-only').checked
+            };
+        }
+        
+        try {
+            const response = await axios.post('/api/jobs', jobData);
+            showNotification('Job créé avec succès', 'success');
+            hideCreateJobModal();
+            loadJobs();
+        } catch (error) {
+            console.error('Erreur lors de la création du job:', error);
+            showNotification('Erreur lors de la création du job', 'error');
+        }
+    }
+    
+    // Voir les détails d'un job
+    function viewJobDetails(jobId) {
+        // Implémenter la vue des détails
+        console.log('Voir détails du job:', jobId);
+    }
+    
+    // Annuler un job
+    async function cancelJob(jobId) {
+        if (confirm('Êtes-vous sûr de vouloir annuler ce job ?')) {
+            try {
+                // Implémenter l'annulation du job
+                showNotification('Job annulé', 'success');
+                loadJobs();
+            } catch (error) {
+                console.error('Erreur lors de l\'annulation du job:', error);
+                showNotification('Erreur lors de l\'annulation du job', 'error');
+            }
+        }
+    }
+    
+    // Rafraîchir les jobs
+    function refreshJobs() {
+        loadJobs();
+    }
+
+    // Gérer les onglets
+    function showTab(tab) {
+        // Masquer toutes les sections
+        document.getElementById('jobs-sqlite-section').classList.add('hidden');
+        document.getElementById('jobs-dispy-section').classList.add('hidden');
+        
+        // Désactiver tous les onglets
+        document.getElementById('tab-sqlite').classList.remove('border-blue-600', 'text-blue-600');
+        document.getElementById('tab-sqlite').classList.add('border-transparent', 'text-gray-500');
+        document.getElementById('tab-dispy').classList.remove('border-blue-600', 'text-blue-600');
+        document.getElementById('tab-dispy').classList.add('border-transparent', 'text-gray-500');
+        
+        // Afficher la section appropriée
+        if (tab === 'sqlite') {
+            document.getElementById('jobs-sqlite-section').classList.remove('hidden');
+            document.getElementById('tab-sqlite').classList.remove('border-transparent', 'text-gray-500');
+            document.getElementById('tab-sqlite').classList.add('border-blue-600', 'text-blue-600');
+        } else if (tab === 'dispy') {
+            document.getElementById('jobs-dispy-section').classList.remove('hidden');
+            document.getElementById('tab-dispy').classList.remove('border-transparent', 'text-gray-500');
+            document.getElementById('tab-dispy').classList.add('border-blue-600', 'text-blue-600');
+            loadDispyJobs();
+        }
+    }
+
+    // Charger les jobs Dispy
+    let dispyJobs = [];
+    
+    async function loadDispyJobs() {
+        try {
+            const response = await axios.get('/api/dispy/jobs');
+            dispyJobs = response.data.jobs || [];
+            updateDispyJobsList(response.data);
+        } catch (error) {
+            console.error('Erreur lors du chargement des jobs Dispy:', error);
+            showNotification('Erreur lors du chargement des jobs Dispy', 'error');
+        }
+    }
+
+    function updateDispyJobsList(dispyData) {
+        const container = document.getElementById('dispy-jobs-list');
+        const countElement = document.getElementById('dispy-jobs-count');
+        
+        if (!dispyData.dispy_active) {
+            container.innerHTML = `
+                <div class="text-center py-12">
+                    <i class="fas fa-server text-gray-300 text-4xl mb-4"></i>
+                    <p class="text-gray-500">Cluster Dispy non initialisé</p>
+                    <p class="text-sm text-gray-400 mt-2">Activez le cluster Dispy pour voir les jobs</p>
+                </div>
+            `;
+            countElement.textContent = '0 jobs';
+            return;
+        }
+        
+        countElement.textContent = `${dispyData.total_jobs} jobs (${dispyData.active_jobs} actifs, ${dispyData.completed_jobs} terminés)`;
+        
+        if (dispyJobs.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-12">
+                    <i class="fas fa-tasks text-gray-300 text-4xl mb-4"></i>
+                    <p class="text-gray-500">Aucun job Dispy trouvé</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = dispyJobs.map(job => `
+            <div class="border border-gray-200 rounded-lg p-4 mb-4 hover:shadow-md transition-shadow">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-3">
+                            <h3 class="font-semibold text-gray-900">Job Dispy #${job.id.slice(-6)}</h3>
+                            <span class="px-2 py-1 rounded-full text-xs font-medium ${
+                                job.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                job.status === 'running' ? 'bg-blue-100 text-blue-800' :
+                                'bg-red-100 text-red-800'
+                            }">
+                                ${job.status === 'completed' ? 'Terminé' :
+                                  job.status === 'running' ? 'En cours' :
+                                  'Erreur'}
+                            </span>
+                        </div>
+                        
+                        <div class="mt-2 text-sm text-gray-600">
+                            <div class="flex items-center space-x-4">
+                                ${job.finished ? `
+                                    <span><i class="fas fa-check-circle mr-1"></i>Terminé</span>
+                                ` : `
+                                    <span><i class="fas fa-spinner fa-spin mr-1"></i>En cours...</span>
+                                `}
+                            </div>
+                        </div>
+                        
+                        ${job.result ? `
+                            <div class="mt-3 bg-gray-50 p-3 rounded text-sm">
+                                <strong>Résultat:</strong>
+                                <pre class="mt-1 text-xs">${JSON.stringify(job.result, null, 2)}</pre>
+                            </div>
+                        ` : ''}
+                        
+                        ${job.error ? `
+                            <div class="mt-3 bg-red-50 p-3 rounded text-sm text-red-700">
+                                <strong>Erreur:</strong> ${job.error}
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Rafraîchir les jobs Dispy
+    function refreshDispyJobs() {
+        loadDispyJobs();
+    }
+    
+    // Charger les jobs au démarrage
+    document.addEventListener('DOMContentLoaded', () => {
+        loadJobs();
+        // Rafraîchir automatiquement toutes les 30 secondes
+        setInterval(loadJobs, 30000);
+        setInterval(loadDispyJobs, 30000);
+    });
+</script>
+{% endblock %}

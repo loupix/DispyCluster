@@ -1,0 +1,16 @@
+# Liste des noeuds workers RPi
+# Adaptez si besoin noms d'hôte ou IP
+workers:
+  - node6.lan
+  - node7.lan
+  - node9.lan
+  - node10.lan
+  - node11.lan
+  - node12.lan
+  - node13.lan
+  - node14.lan
+
+# Noeud maitre (facultatif si ce fichier est partagé)
+master: node13.lan
+
+
