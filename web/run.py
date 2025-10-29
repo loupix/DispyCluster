@@ -11,7 +11,7 @@ web_dir = Path(__file__).parent
 sys.path.insert(0, str(web_dir))
 
 # Importer l'application
-from app import app
+from app import create_socketio_app
 
 if __name__ == "__main__":
     # Configuration
@@ -23,11 +23,12 @@ if __name__ == "__main__":
     print(f"📍 URL: http://{host}:{port}")
     print(f"🔧 Mode debug: {debug}")
     
-    # Démarrer le serveur
+    # Démarrer le serveur avec l'app Socket.IO (factory)
     uvicorn.run(
-        "app:app",
+        "app:create_socketio_app",
         host=host,
         port=port,
         reload=debug,
-        log_level="info" if not debug else "debug"
+        log_level="info" if not debug else "debug",
+        factory=True
     )

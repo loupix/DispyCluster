@@ -5,9 +5,15 @@
 {% block content %}
 <div class="space-y-8">
     <!-- En-tête -->
-    <div class="text-center">
-        <h1 class="text-4xl font-bold text-white mb-4">Dashboard DispyCluster</h1>
-        <p class="text-blue-100 text-lg">Surveillance et gestion de votre cluster de Raspberry Pi</p>
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-white">Dashboard DispyCluster</h1>
+            <p class="text-blue-100 mt-2">Surveillance et gestion de votre cluster de Raspberry Pi</p>
+        </div>
+        <div class="hidden md:flex items-center space-x-3">
+            <a href="/nodes" class="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm">Voir les nœuds</a>
+            <a href="/monitoring" class="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm">Monitoring</a>
+        </div>
     </div>
     
     <!-- Métriques principales -->
@@ -74,9 +80,9 @@
     </div>
     
     <!-- Contenu principal -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <!-- Nœuds récents -->
-        <div class="card p-6">
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <!-- Nœuds récents (colonne 1) -->
+        <div class="card p-6 xl:col-span-1">
             <div class="flex items-center justify-between mb-6">
                 <h2 class="text-xl font-semibold text-gray-900">Nœuds</h2>
                 <a href="/nodes" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
@@ -91,32 +97,49 @@
                 </div>
             </div>
         </div>
-    </div>
-    
-    <!-- Jobs récents -->
-    <div class="card p-6">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-xl font-semibold text-gray-900">Jobs Récents</h2>
-            <div class="flex space-x-4">
-                <button onclick="refreshJobs()" class="text-gray-500 hover:text-gray-700">
-                    <i class="fas fa-sync-alt"></i>
-                </button>
-                <a href="/jobs" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                    Voir tout <i class="fas fa-arrow-right ml-1"></i>
-                </a>
-            </div>
-        </div>
         
-        <div id="recent-jobs">
-            <div class="flex items-center justify-center py-8">
-                <div class="loading"></div>
-                <span class="ml-3 text-gray-600">Chargement...</span>
+        <!-- TOPS en seconde position (colonne 2-3) -->
+        <div class="xl:col-span-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+            <div class="card p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold text-gray-900">Top CPU</h2>
+                </div>
+                <div id="top-cpu">
+                    <div class="flex items-center justify-center py-8">
+                        <div class="loading"></div>
+                        <span class="ml-3 text-gray-600">Chargement...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold text-gray-900">Top Mémoire</h2>
+                </div>
+                <div id="top-mem">
+                    <div class="flex items-center justify-center py-8">
+                        <div class="loading"></div>
+                        <span class="ml-3 text-gray-600">Chargement...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold text-gray-900">Températures élevées</h2>
+                </div>
+                <div id="top-temp">
+                    <div class="flex items-center justify-center py-8">
+                        <div class="loading"></div>
+                        <span class="ml-3 text-gray-600">Chargement...</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
     
-    <!-- Alertes -->
-    <div class="card p-6">
+    
+    
+    <!-- Alertes (affichage seulement si actives) -->
+    <div class="card p-6" id="alerts-card" style="display:none;">
         <div class="flex items-center justify-between mb-6">
             <h2 class="text-xl font-semibold text-gray-900">Alertes</h2>
             <button onclick="refreshAlerts()" class="text-gray-500 hover:text-gray-700">
@@ -125,10 +148,7 @@
         </div>
         
         <div id="alerts-content">
-            <div class="flex items-center justify-center py-8">
-                <div class="loading"></div>
-                <span class="ml-3 text-gray-600">Chargement...</span>
-            </div>
+            <p class="text-green-600 text-center py-4"><i class="fas fa-check-circle mr-2"></i>Aucune alerte active</p>
         </div>
     </div>
 </div>
@@ -136,52 +156,39 @@
 
 {% block scripts %}
 <script>
-    // Charger les données du dashboard
-    async function loadDashboardData() {
-        try {
-            // Vue d'ensemble du cluster
-            const overviewResponse = await axios.get('/api/cluster/overview');
-            const overview = overviewResponse.data;
-            
-            // Mettre à jour les métriques principales
+    // Mettre à jour le dashboard depuis WebSocket
+    function updateFromOverview(overview) {
+        if (!overview) return;
             document.getElementById('nodes-online').textContent = overview.cluster_stats?.ready_nodes || 0;
             document.getElementById('nodes-total').textContent = overview.cluster_stats?.total_nodes || 0;
-            document.getElementById('avg-cpu').textContent = overview.cluster_stats?.cpu_usage_avg?.toFixed(1) + '%' || '-';
-            document.getElementById('avg-memory').textContent = overview.cluster_stats?.memory_usage_avg?.toFixed(1) + '%' || '-';
-            
-            
-            // Jobs récents
-            const jobsResponse = await axios.get('/api/jobs?limit=5');
-            updateRecentJobs(jobsResponse.data);
-            
-            // Alertes
-            const alertsResponse = await axios.get('/api/alerts');
-            updateAlerts(alertsResponse.data);
-            
-        } catch (error) {
-            console.error('Erreur lors du chargement du dashboard:', error);
-            showNotification('Erreur lors du chargement des données', 'error');
+        if (overview.cluster_stats?.cpu_usage_avg !== undefined) {
+            document.getElementById('avg-cpu').textContent = overview.cluster_stats.cpu_usage_avg.toFixed(1) + '%';
+            const cpuBar = document.getElementById('dash-cpu-bar');
+            const cpuVal = document.getElementById('dash-cpu-val');
+            if (cpuBar && cpuVal) {
+                const cpu = Math.max(0, Math.min(100, overview.cluster_stats.cpu_usage_avg));
+                cpuBar.style.width = cpu + '%';
+                cpuVal.textContent = cpu.toFixed(1) + '%';
+            }
         }
-    }
-    
-    
-    async function loadNodes() {
-        try {
-            const response = await axios.get('/api/cluster/nodes');
-            updateNodesList(response.data);
-        } catch (error) {
-            console.error('Erreur lors du chargement des nœuds:', error);
+        if (overview.cluster_stats?.memory_usage_avg !== undefined) {
+            document.getElementById('avg-memory').textContent = overview.cluster_stats.memory_usage_avg.toFixed(1) + '%';
+            const memBar = document.getElementById('dash-mem-bar');
+            const memVal = document.getElementById('dash-mem-val');
+            if (memBar && memVal) {
+                const mem = Math.max(0, Math.min(100, overview.cluster_stats.memory_usage_avg));
+                memBar.style.width = mem + '%';
+                memVal.textContent = mem.toFixed(1) + '%';
+            }
         }
     }
     
     function updateNodesList(nodes) {
         const container = document.getElementById('nodes-list');
-        
         if (!nodes || nodes.length === 0) {
             container.innerHTML = '<p class="text-gray-500 text-center py-4">Aucun nœud disponible</p>';
             return;
         }
-        
         container.innerHTML = nodes.slice(0, 5).map(node => `
             <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2">
                 <div class="flex items-center">
@@ -203,81 +210,94 @@
         `).join('');
     }
     
-    function updateRecentJobs(jobs) {
-        const container = document.getElementById('recent-jobs');
-        
-        if (!jobs || jobs.length === 0) {
-            container.innerHTML = '<p class="text-gray-500 text-center py-4">Aucun job récent</p>';
-            return;
-        }
-        
-        container.innerHTML = jobs.map(job => `
-            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2">
-                <div class="flex items-center">
-                    <i class="fas fa-tasks text-gray-400 mr-3"></i>
-                    <div>
-                        <div class="font-medium">${job.name}</div>
-                        <div class="text-sm text-gray-500">${job.job_type} • ${new Date(job.created_at).toLocaleString()}</div>
-                    </div>
-                </div>
-                <span class="px-2 py-1 rounded-full text-xs font-medium ${
-                    job.status === 'completed' ? 'bg-green-100 text-green-800' :
-                    job.status === 'running' ? 'bg-blue-100 text-blue-800' :
-                    job.status === 'failed' ? 'bg-red-100 text-red-800' :
-                    'bg-gray-100 text-gray-800'
-                }">
-                    ${job.status === 'completed' ? 'Terminé' :
-                      job.status === 'running' ? 'En cours' :
-                      job.status === 'failed' ? 'Échoué' :
-                      'En attente'}
-                </span>
-            </div>
-        `).join('');
-    }
-    
     function updateAlerts(alerts) {
+        const card = document.getElementById('alerts-card');
         const container = document.getElementById('alerts-content');
-        
         if (!alerts.active_alerts || alerts.active_alerts.length === 0) {
+            card.style.display = 'none';
             container.innerHTML = '<p class="text-green-600 text-center py-4"><i class="fas fa-check-circle mr-2"></i>Aucune alerte active</p>';
             return;
         }
-        
-        container.innerHTML = alerts.active_alerts.map(alert => `
+        card.style.display = '';
+        container.innerHTML = alerts.active_alerts.slice(0,6).map(alert => `
             <div class="flex items-center p-3 bg-red-50 border-l-4 border-red-400 rounded-lg mb-2">
                 <i class="fas fa-exclamation-triangle text-red-600 mr-3"></i>
-                <div class="text-red-800">${alert}</div>
+                <div class="text-red-800">${alert.message || alert}</div>
             </div>
         `).join('');
     }
     
-    // Fonctions de rafraîchissement
-    
-    function refreshJobs() {
-        loadDashboardData();
-    }
-    
-    function refreshAlerts() {
-        loadDashboardData();
-    }
-    
-    // Fonction pour rafraîchir les métriques depuis WebSocket
-    function refreshMetrics(data) {
-        if (data.nodes) {
-            updateNodesList(data.nodes);
-        }
-    }
-    
-    // Charger les données au démarrage
+    // Connection WS dédiée dashboard
     document.addEventListener('DOMContentLoaded', () => {
-        loadDashboardData();
-        loadNodes();
-        
-        // Rafraîchir automatiquement toutes les 30 secondes (fallback si WebSocket échoue)
-        setInterval(() => {
-            loadDashboardData();
-            loadNodes();
-        }, 30000);
+        // Namespace monitoring
+        const mon = io('/monitoring');
+        mon.on('cluster_metrics', (data) => {
+            // data est le payload agrégé côté serveur
+            const nodes = data && data.nodes ? Object.entries(data.nodes).map(([node, metrics]) => ({
+                node,
+                cpu_usage: metrics.cpu_usage || 0,
+                memory_usage: metrics.memory_usage || 0,
+                status: (metrics.cpu_usage || 0) > 0 ? 'ready' : 'unknown'
+            })) : [];
+            updateNodesList(nodes);
+
+            // Top CPU
+            const topCpu = [...nodes].sort((a,b) => (b.cpu_usage||0) - (a.cpu_usage||0)).slice(0,3);
+            document.getElementById('top-cpu').innerHTML = topCpu.length ? topCpu.map(n => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2">
+                    <div class="flex items-center">
+                        <i class="fas fa-microchip text-yellow-500 mr-3"></i>
+                        <div>
+                            <div class="font-medium">${n.node}</div>
+                            <div class="text-sm text-gray-500">CPU: ${(n.cpu_usage||0).toFixed(1)}%</div>
+                        </div>
+                    </div>
+                    <span class="text-sm font-medium ${n.cpu_usage>80?'text-red-600':n.cpu_usage>60?'text-orange-600':'text-yellow-700'}">${(n.cpu_usage||0).toFixed(1)}%</span>
+                </div>
+            `).join('') : '<p class="text-gray-500 text-center py-4">Aucune donnée</p>';
+
+            // Top Mémoire
+            const topMem = [...nodes].sort((a,b) => (b.memory_usage||0) - (a.memory_usage||0)).slice(0,3);
+            document.getElementById('top-mem').innerHTML = topMem.length ? topMem.map(n => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2">
+                    <div class="flex items-center">
+                        <i class="fas fa-memory text-purple-600 mr-3"></i>
+                        <div>
+                            <div class="font-medium">${n.node}</div>
+                            <div class="text-sm text-gray-500">RAM: ${(n.memory_usage||0).toFixed(1)}%</div>
+                        </div>
+                    </div>
+                    <span class="text-sm font-medium ${n.memory_usage>85?'text-red-600':n.memory_usage>60?'text-purple-700':'text-purple-600'}">${(n.memory_usage||0).toFixed(1)}%</span>
+                </div>
+            `).join('') : '<p class="text-gray-500 text-center py-4">Aucune donnée</p>';
+
+            // Temp hautes si dispo
+            const withTemp = nodes.filter(n => typeof n.temperature === 'number');
+            const topTemp = withTemp.sort((a,b) => (b.temperature||0) - (a.temperature||0)).slice(0,3);
+            document.getElementById('top-temp').innerHTML = topTemp.length ? topTemp.map(n => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2">
+                    <div class="flex items-center">
+                        <i class="fas fa-thermometer-half text-red-600 mr-3"></i>
+                        <div>
+                            <div class="font-medium">${n.node}</div>
+                            <div class="text-sm text-gray-500">Temp: ${(n.temperature||0).toFixed(1)}°C</div>
+                        </div>
+                    </div>
+                    <span class="text-sm font-medium ${n.temperature>70?'text-red-600':n.temperature>55?'text-yellow-600':'text-green-600'}">${(n.temperature||0).toFixed(1)}°C</span>
+                </div>
+            `).join('') : '<p class="text-gray-500 text-center py-4">Aucune donnée</p>';
+        });
+        mon.on('alerts_update', (data) => updateAlerts(data));
+        mon.on('cluster_status_response', (payload) => updateFromOverview(payload && payload.data));
+        // Demander un aperçu complet une fois connecté
+        mon.on('connect', () => {
+            mon.emit('request_cluster_status', {});
+            mon.emit('request_nodes_status', {});
+        });
+
+        // Namespace health pour l’indicateur global (déjà géré dans base.html si présent)
+        const health = io('/health');
+        health.on('health_update', () => {});
     });
 </script>
 {% endblock %}

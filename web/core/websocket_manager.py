@@ -24,7 +24,9 @@ class WebSocketManager:
             cors_allowed_origins="*",
             async_mode="asgi",
             logger=False,
-            engineio_logger=False
+            engineio_logger=False,
+            allow_headers=["*"],
+            transports=["websocket", "polling"]
         )
         self.app = None
         self.redis_client = redis.Redis(**REDIS_CONFIG)
@@ -40,15 +42,20 @@ class WebSocketManager:
         
     def _setup_namespaces(self):
         """Configurer les namespaces WebSocket."""
-        # Namespace pour le monitoring du cluster
-        monitoring_ns = MonitoringNamespace("/monitoring")
-        self.sio.register_namespace(monitoring_ns)
-        self.namespaces["monitoring"] = monitoring_ns
-        
-        # Namespace pour la santé du système
-        health_ns = HealthNamespace("/health")
-        self.sio.register_namespace(health_ns)
-        self.namespaces["health"] = health_ns
+        try:
+            # Namespace pour le monitoring du cluster
+            monitoring_ns = MonitoringNamespace("/monitoring")
+            self.sio.register_namespace(monitoring_ns)
+            self.namespaces["monitoring"] = monitoring_ns
+            
+            # Namespace pour la santé du système
+            health_ns = HealthNamespace("/health")
+            self.sio.register_namespace(health_ns)
+            self.namespaces["health"] = health_ns
+            
+            logger.info("Namespaces WebSocket configurés: /monitoring, /health")
+        except Exception as e:
+            logger.error(f"Erreur lors de la configuration des namespaces: {e}")
         
     def _setup_event_handlers(self):
         """Configurer les gestionnaires d'événements globaux."""
@@ -173,6 +180,15 @@ class MonitoringNamespace(AsyncNamespace):
             "namespace": "/monitoring",
             "timestamp": datetime.now().isoformat()
         }, room=sid)
+        # Pousser immédiatement les dernières métriques si disponibles
+        try:
+            client = redis.Redis(**REDIS_CONFIG)
+            cached = client.get("cluster:metrics")
+            if cached:
+                data = json.loads(cached)
+                await self.emit("cluster_metrics", data, room=sid)
+        except Exception:
+            pass
         
     async def on_disconnect(self, sid):
         """Appelé lors de la déconnexion du namespace."""
@@ -239,6 +255,31 @@ class HealthNamespace(AsyncNamespace):
             "namespace": "/health",
             "timestamp": datetime.now().isoformat()
         }, room=sid)
+        # Pousser immédiatement le dernier état de santé via metrics agrégées
+        try:
+            client = redis.Redis(**REDIS_CONFIG)
+            cached = client.get("cluster:metrics")
+            if cached:
+                aggregated = json.loads(cached)
+                total_nodes = aggregated.get("cluster_stats", {}).get("total_nodes", 0)
+                online_nodes = aggregated.get("cluster_stats", {}).get("online_nodes", 0)
+                down_nodes = max(total_nodes - online_nodes, 0)
+                if down_nodes == 0 and total_nodes > 0:
+                    overall_status = "healthy"
+                elif down_nodes <= total_nodes // 2:
+                    overall_status = "warning"
+                else:
+                    overall_status = "critical"
+                health_data = {
+                    "timestamp": datetime.now().isoformat(),
+                    "overall_status": overall_status,
+                    "nodes_online": online_nodes,
+                    "nodes_total": total_nodes,
+                    "issues": [] if overall_status == "healthy" else [f"{down_nodes} nœuds hors ligne"]
+                }
+                await self.emit("health_update", health_data, room=sid)
+        except Exception:
+            pass
         
     async def on_disconnect(self, sid):
         """Appelé lors de la déconnexion du namespace."""

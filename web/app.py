@@ -487,22 +487,7 @@ async def abort_scrape(task_id: str):
     except Exception as e:
         raise HTTPException(500, f"Abort échec: {e}")
 
-# Monitoring et métriques
-@app.get("/api/metrics")
-async def get_metrics():
-    """Métriques intelligentes du cluster."""
-    try:
-        return await monitoring_view.get_real_time_metrics()
-    except Exception as e:
-        return {"error": str(e), "metrics": {}}
-
-@app.get("/api/alerts")
-async def get_alerts():
-    """Alertes intelligentes."""
-    try:
-        return await monitoring_view.get_alerts()
-    except Exception as e:
-        return {"error": str(e), "alerts": []}
+# Endpoints REST non essentiels supprimés au profit du WebSocket
 
 # Endpoints intelligents supplémentaires
 @app.get("/api/cluster/optimize")

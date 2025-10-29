@@ -1,5 +1,5 @@
-$env:CONDA_DEFAULT_ENV
-conda activate dispycluster
+# $env:CONDA_DEFAULT_ENV
+# conda activate dispycluster
 
 Write-Host "Environnement actif: $env:CONDA_DEFAULT_ENV"
 
@@ -99,10 +99,10 @@ if ($StartLegacyServices) {
 
 # Lancer l'API/UI en avant-plan
 Write-Host "Démarrage de l'API/UI (Uvicorn) sur http://localhost:8085..."
-Write-Host "📊 Graphiques disponibles sur: http://localhost:8085/monitoring"
-Write-Host "🔧 API Graphiques: http://localhost:8085/api/graphs/"
+# Write-Host "📊 Graphiques disponibles sur: http://localhost:8085/monitoring"
+# Write-Host "🔧 API Graphiques: http://localhost:8085/api/graphs/"
 Set-Item Env:WEB_SIMULATE_NODES 0
-uvicorn web.app:app --host 0.0.0.0 --port 8085
+uvicorn web.app:create_socketio_app --factory --host 0.0.0.0 --port 8085
 
 # À l'arrêt de l'API, tenter d'arrêter Celery proprement
 try {

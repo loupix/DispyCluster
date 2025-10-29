@@ -288,13 +288,23 @@
             }
         }
         
-        // Vérifier le statut toutes les 30 secondes
-        setInterval(checkClusterStatus, 30000);
-        
-        // Vérifier au chargement
+        // Remplacer le polling XHR par WebSocket /health
         document.addEventListener('DOMContentLoaded', () => {
-            checkClusterStatus();
             initWebSocket();
+            try {
+                const healthSocket = io('/health');
+                healthSocket.on('health_update', (data) => {
+                    const statusElement = document.getElementById('cluster-status');
+                    if (!statusElement) return;
+                    const ok = data && data.overall_status === 'healthy';
+                    statusElement.className = ok
+                        ? 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800'
+                        : 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800';
+                    statusElement.innerHTML = ok
+                        ? '<i class="fas fa-circle mr-1"></i>En ligne'
+                        : '<i class="fas fa-circle mr-1"></i>Hors ligne';
+                });
+            } catch (e) {}
         });
     </script>
     

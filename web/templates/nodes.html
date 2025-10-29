@@ -63,25 +63,8 @@
         </div>
     </div>
     
-    <!-- Liste des nœuds -->
-    <div class="card p-6">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-xl font-semibold text-gray-900">Nœuds</h2>
-            <div class="flex items-center space-x-4">
-                <span class="text-sm text-gray-500" id="nodes-count">0 nœuds</span>
-            </div>
-        </div>
-        
-        <div id="nodes-list">
-            <div class="flex items-center justify-center py-12">
-                <div class="loading"></div>
-                <span class="ml-3 text-gray-600">Chargement des nœuds...</span>
-            </div>
-        </div>
-    </div>
-    
     <!-- Graphiques de performance -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
         <div class="card p-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-4">Utilisation CPU</h3>
             <canvas id="cpu-chart" width="400" height="200"></canvas>
@@ -91,233 +74,215 @@
             <h3 class="text-lg font-semibold text-gray-900 mb-4">Utilisation Mémoire</h3>
             <canvas id="memory-chart" width="400" height="200"></canvas>
         </div>
+
+        <div class="card p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Température</h3>
+            <canvas id="temp-chart" width="400" height="200"></canvas>
+        </div>
+    </div>
+    
+    <!-- Liste des nœuds -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-semibold text-gray-900">Nœuds</h2>
+            <div class="flex items-center space-x-4">
+                <span class="text-sm text-gray-500" id="nodes-count">0 nœuds</span>
+            </div>
+        </div>
+
+        <div id="nodes-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div class="flex items-center justify-center py-12 col-span-full">
+                <div class="loading"></div>
+                <span class="ml-3 text-gray-600">Chargement des nœuds...</span>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     let nodes = [];
     let cpuChart = null;
     let memoryChart = null;
+    let tempChart = null;
+    let lastChartsUpdateTs = 0;
     
-    // Charger les nœuds
-    async function loadNodes() {
-        try {
-            const response = await axios.get('/api/cluster/nodes');
-            nodes = response.data;
-            updateNodesList();
-            updateOverviewMetrics();
-            updateCharts();
-        } catch (error) {
-            console.error('Erreur lors du chargement des nœuds:', error);
-            showNotification('Erreur lors du chargement des nœuds', 'error');
-        }
-    }
-    
-    // Mettre à jour la liste des nœuds
     function updateNodesList() {
         const container = document.getElementById('nodes-list');
         const countElement = document.getElementById('nodes-count');
-        
         countElement.textContent = `${nodes.length} nœud${nodes.length > 1 ? 's' : ''}`;
-        
         if (nodes.length === 0) {
             container.innerHTML = `
-                <div class="text-center py-12">
+                <div class="text-center py-12 col-span-full">
                     <i class="fas fa-server text-gray-300 text-4xl mb-4"></i>
                     <p class="text-gray-500">Aucun nœud disponible</p>
                 </div>
             `;
             return;
         }
-        
-        container.innerHTML = nodes.map(node => `
-            <div class="border border-gray-200 rounded-lg p-6 mb-4 hover:shadow-md transition-shadow">
+        container.innerHTML = nodes.map(node => {
+            const cpu = Number(node.cpu_usage || 0);
+            const mem = Number(node.memory_usage || 0);
+            const temp = Number(node.temperature || 0);
+            const disk = Number(node.disk_usage || 0);
+            const up = (node.status === 'ready' || node.is_healthy);
+            return `
+            <div class="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
                 <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center space-x-3">
-                        <div class="w-3 h-3 rounded-full ${
-                            (node.status === 'ready' || node.is_healthy) ? 'bg-green-500' : 'bg-red-500'
-                        }"></div>
+                        <div class="w-3 h-3 rounded-full ${up ? 'bg-green-500' : 'bg-red-500'}"></div>
                         <h3 class="text-lg font-semibold text-gray-900">${node.node}</h3>
-                        <span class="px-2 py-1 rounded-full text-xs font-medium ${
-                            (node.status === 'ready' || node.is_healthy) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }">
-                            ${(node.status === 'ready' || node.is_healthy) ? 'En ligne' : 'Hors ligne'}
-                        </span>
+                        <span class="px-2 py-1 rounded-full text-xs font-medium ${up ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${up ? 'En ligne' : 'Hors ligne'}</span>
                     </div>
-                    
-                    <div class="flex items-center space-x-2">
-                        <button onclick="viewNodeDetails('${node.node}')" 
-                                class="text-blue-600 hover:text-blue-800 p-2">
-                            <i class="fas fa-eye"></i>
-                        </button>
-                        <button onclick="refreshNodeMetrics('${node.node}')" 
-                                class="text-gray-500 hover:text-gray-700 p-2">
-                            <i class="fas fa-sync-alt"></i>
-                        </button>
+                    <div class="text-sm text-gray-500">MAJ: ${new Date().toLocaleTimeString()}</div>
+                </div>
+
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>CPU</span><span>${cpu.toFixed(1)}%</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${cpu<60?'bg-yellow-400':cpu<85?'bg-orange-500':'bg-red-600'}" style="width:${Math.min(cpu,100)}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>Mémoire</span><span>${mem.toFixed(1)}%</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${mem<60?'bg-purple-500':mem<85?'bg-purple-600':'bg-purple-800'}" style="width:${Math.min(mem,100)}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>Disque</span><span>${disk.toFixed(1)}%</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${disk<70?'bg-blue-500':disk<90?'bg-blue-600':'bg-blue-800'}" style="width:${Math.min(disk,100)}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>Température</span><span>${temp.toFixed(1)}°C</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${temp<55?'bg-green-500':temp<70?'bg-yellow-500':'bg-red-600'}" style="width:${Math.min(temp,100)}%"></div></div>
                     </div>
                 </div>
-                
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div class="text-center">
-                        <div class="text-2xl font-bold text-gray-900">${node.cpu_usage?.toFixed(1) || 0}%</div>
-                        <div class="text-sm text-gray-600">CPU</div>
-                        <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                            <div class="bg-yellow-500 h-2 rounded-full transition-all duration-300" 
-                                 style="width: ${node.cpu_usage || 0}%"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="text-center">
-                        <div class="text-2xl font-bold text-gray-900">${node.memory_usage?.toFixed(1) || 0}%</div>
-                        <div class="text-sm text-gray-600">RAM</div>
-                        <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                            <div class="bg-purple-500 h-2 rounded-full transition-all duration-300" 
-                                 style="width: ${node.memory_usage || 0}%"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="text-center">
-                        <div class="text-2xl font-bold text-gray-900">${node.disk_usage?.toFixed(1) || 0}%</div>
-                        <div class="text-sm text-gray-600">Disque</div>
-                        <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                            <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" 
-                                 style="width: ${node.disk_usage || 0}%"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="text-center">
-                        <div class="text-2xl font-bold text-gray-900">${node.temperature?.toFixed(1) || '-'}°C</div>
-                        <div class="text-sm text-gray-600">Température</div>
-                        <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                            <div class="bg-red-500 h-2 rounded-full transition-all duration-300" 
-                                 style="width: ${node.temperature ? Math.min((node.temperature / 80) * 100, 100) : 0}%"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="mt-4 text-sm text-gray-600">
-                    <div class="flex items-center justify-between">
-                        <span><i class="fas fa-clock mr-1"></i>Dernière mise à jour: ${node.last_update ? new Date(node.last_update).toLocaleString() : 'Inconnue'}</span>
-                        ${node.uptime_hours ? `<span><i class="fas fa-history mr-1"></i>Uptime: ${node.uptime_hours.toFixed(1)}h</span>` : ''}
-                    </div>
-                </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
     
-    // Mettre à jour les métriques d'ensemble
     function updateOverviewMetrics() {
-        const onlineNodes = nodes.filter(node => node.status === 'ready' || node.is_healthy);
-        const cpuValues = onlineNodes.map(node => node.cpu_usage).filter(val => val !== undefined);
-        const memoryValues = onlineNodes.map(node => node.memory_usage).filter(val => val !== undefined);
-        const tempValues = onlineNodes.map(node => node.temperature).filter(val => val !== undefined);
-        
-        document.getElementById('nodes-online').textContent = onlineNodes.length;
-        document.getElementById('avg-cpu').textContent = cpuValues.length > 0 ? 
-            (cpuValues.reduce((a, b) => a + b, 0) / cpuValues.length).toFixed(1) + '%' : '-';
-        document.getElementById('avg-memory').textContent = memoryValues.length > 0 ? 
-            (memoryValues.reduce((a, b) => a + b, 0) / memoryValues.length).toFixed(1) + '%' : '-';
-        document.getElementById('avg-temp').textContent = tempValues.length > 0 ? 
-            (tempValues.reduce((a, b) => a + b, 0) / tempValues.length).toFixed(1) + '°C' : '-';
+        const online = nodes.filter(n => (n.status === 'ready' || n.is_healthy));
+        const avg = (arr) => arr.length ? (arr.reduce((a,b)=>a+b,0) / arr.length) : 0;
+        const avgCpu = avg(online.map(n => n.cpu_usage || 0));
+        const avgMem = avg(online.map(n => n.memory_usage || 0));
+        const avgTemp = avg(online.map(n => n.temperature || 0));
+        document.getElementById('nodes-online').textContent = online.length.toString();
+        const totalEl = document.getElementById('nodes-count');
+        if (totalEl) totalEl.textContent = `${nodes.length} nœud${nodes.length>1?'s':''}`;
+        document.getElementById('avg-cpu').textContent = avgCpu ? `${avgCpu.toFixed(1)}%` : '-';
+        document.getElementById('avg-memory').textContent = avgMem ? `${avgMem.toFixed(1)}%` : '-';
+        document.getElementById('avg-temp').textContent = avgTemp ? `${avgTemp.toFixed(1)}°C` : '-';
     }
-    
-    // Mettre à jour les graphiques
+
     function updateCharts() {
-        const onlineNodes = nodes.filter(node => node.status === 'ready' || node.is_healthy);
-        
-        if (onlineNodes.length === 0) {
-            // Détruire les graphiques existants
-            if (cpuChart) {
-                cpuChart.destroy();
-                cpuChart = null;
-            }
-            if (memoryChart) {
-                memoryChart.destroy();
-                memoryChart = null;
-            }
-            return;
+        const now = Date.now();
+        if (now - lastChartsUpdateTs < 1200) { return; }
+        lastChartsUpdateTs = now;
+
+        const onlineNodes = nodes.filter(n => (n.status === 'ready' || n.is_healthy));
+        const labels = onlineNodes.map(n => n.node);
+        const cpuData = onlineNodes.map(n => n.cpu_usage || 0);
+        const memData = onlineNodes.map(n => n.memory_usage || 0);
+        const tempData = onlineNodes.map(n => n.temperature || 0);
+
+        const commonOptions = {
+            responsive: true,
+            animation: { duration: 0 },
+            scales: { y: { beginAtZero: true, suggestedMax: 100 } },
+            plugins: { legend: { display: false } }
+        };
+
+        // CPU chart
+        if (!cpuChart) {
+            const cpuCtx = document.getElementById('cpu-chart').getContext('2d');
+            cpuChart = new Chart(cpuCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'CPU Usage (%)',
+                        data: cpuData,
+                        backgroundColor: 'rgba(251, 191, 36, 0.8)',
+                        borderColor: 'rgba(251, 191, 36, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: commonOptions
+            });
+        } else {
+            cpuChart.data.labels = labels;
+            cpuChart.data.datasets[0].data = cpuData;
+            cpuChart.update('none');
         }
-        
-        // Graphique CPU
-        const cpuCtx = document.getElementById('cpu-chart').getContext('2d');
-        if (cpuChart) cpuChart.destroy();
-        
-        cpuChart = new Chart(cpuCtx, {
-            type: 'bar',
-            data: {
-                labels: onlineNodes.map(node => node.node),
-                datasets: [{
-                    label: 'CPU Usage (%)',
-                    data: onlineNodes.map(node => node.cpu_usage || 0),
-                    backgroundColor: 'rgba(251, 191, 36, 0.8)',
-                    borderColor: 'rgba(251, 191, 36, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 100
-                    }
-                }
-            }
-        });
-        
-        // Graphique Mémoire
-        const memoryCtx = document.getElementById('memory-chart').getContext('2d');
-        if (memoryChart) memoryChart.destroy();
-        
-        memoryChart = new Chart(memoryCtx, {
-            type: 'bar',
-            data: {
-                labels: onlineNodes.map(node => node.node),
-                datasets: [{
-                    label: 'Memory Usage (%)',
-                    data: onlineNodes.map(node => node.memory_usage || 0),
-                    backgroundColor: 'rgba(147, 51, 234, 0.8)',
-                    borderColor: 'rgba(147, 51, 234, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 100
-                    }
-                }
-            }
-        });
+
+        // Memory chart
+        if (!memoryChart) {
+            const memCtx = document.getElementById('memory-chart').getContext('2d');
+            memoryChart = new Chart(memCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Memory Usage (%)',
+                        data: memData,
+                        backgroundColor: 'rgba(147, 51, 234, 0.8)',
+                        borderColor: 'rgba(147, 51, 234, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: commonOptions
+            });
+        } else {
+            memoryChart.data.labels = labels;
+            memoryChart.data.datasets[0].data = memData;
+            memoryChart.update('none');
+        }
+
+        // Temperature chart
+        if (!tempChart) {
+            const tCtx = document.getElementById('temp-chart').getContext('2d');
+            tempChart = new Chart(tCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Température (°C)',
+                        data: tempData,
+                        backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                        borderColor: 'rgba(239, 68, 68, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: { ...commonOptions, scales: { y: { beginAtZero: true } } }
+            });
+        } else {
+            tempChart.data.labels = labels;
+            tempChart.data.datasets[0].data = tempData;
+            tempChart.update('none');
+        }
     }
-    
-    // Voir les détails d'un nœud
-    function viewNodeDetails(nodeName) {
-        // Implémenter la vue des détails
-        console.log('Voir détails du nœud:', nodeName);
-    }
-    
-    // Actions (supprimées - pas nécessaires)
-    
-    // Fonction pour rafraîchir les métriques depuis WebSocket
-    function refreshMetrics(data) {
-        if (data.nodes) {
-            nodes = data.nodes;
+
+    // Brancher WebSocket sur /monitoring
+    document.addEventListener('DOMContentLoaded', () => {
+        const mon = io('/monitoring');
+        mon.on('cluster_metrics', (data) => {
+            const mapped = data && data.nodes ? Object.entries(data.nodes).map(([node, metrics]) => ({
+                node,
+                cpu_usage: metrics.cpu_usage || 0,
+                memory_usage: metrics.memory_usage || 0,
+                disk_usage: (metrics.disk_usage !== undefined) ? metrics.disk_usage : (metrics.disk_total ? (100 - (100 * (metrics.disk_available || 0) / metrics.disk_total)) : 0),
+                temperature: metrics.temperature || 0,
+                is_healthy: metrics.is_healthy,
+                status: (metrics.cpu_usage || 0) > 0 ? 'ready' : 'unknown'
+            })) : [];
+            nodes = mapped;
             updateNodesList();
             updateOverviewMetrics();
             updateCharts();
-        }
-    }
-    
-    // Charger les nœuds au démarrage
-    document.addEventListener('DOMContentLoaded', loadNodes);
-    
-    // Rafraîchir automatiquement toutes les 30 secondes (fallback si WebSocket échoue)
-    setInterval(loadNodes, 30000);
+        });
+        mon.on('connect', () => {
+            mon.emit('request_nodes_status', {});
+        });
+    });
 </script>
 {% endblock %}
