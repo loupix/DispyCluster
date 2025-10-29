@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test WebSocket - DispyCluster</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .connected { background-color: #d4edda; }
+        .disconnected { background-color: #f8d7da; }
+        .connecting { background-color: #fff3cd; }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        #output {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #007bff;
+        }
+        .error {
+            border-left-color: #dc3545;
+            color: #dc3545;
+        }
+        .success {
+            border-left-color: #28a745;
+            color: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test WebSocket - DispyCluster</h1>
+    
+    <div id="status" class="status disconnected">Déconnecté</div>
+    
+    <div>
+        <button id="connectBtn" onclick="connect()">Se connecter</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>Se déconnecter</button>
+        <button id="healthBtn" onclick="requestHealth()" disabled>Demander Health</button>
+        <button id="nodesBtn" onclick="requestNodes()" disabled>Demander Nodes</button>
+        <button id="clearBtn" onclick="clearOutput()">Vider</button>
+    </div>
+    
+    <h2>Console</h2>
+    <div id="output"></div>
+
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script>
+        let socket = null;
+        const socketUrl = window.location.origin;
+        
+        const statusDiv = document.getElementById('status');
+        const outputDiv = document.getElementById('output');
+        
+        function log(message, type = 'info') {
+            const now = new Date().toLocaleTimeString();
+            const msg = document.createElement('div');
+            msg.className = 'message ' + type;
+            msg.textContent = `[${now}] ${message}`;
+            outputDiv.appendChild(msg);
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        }
+        
+        function clearOutput() {
+            outputDiv.innerHTML = '';
+        }
+        
+        function updateStatus(status, text) {
+            statusDiv.className = `status ${status}`;
+            statusDiv.textContent = text;
+        }
+        
+        function setButtonsState(connected) {
+            document.getElementById('connectBtn').disabled = connected;
+            document.getElementById('disconnectBtn').disabled = !connected;
+            document.getElementById('healthBtn').disabled = !connected;
+            document.getElementById('nodesBtn').disabled = !connected;
+        }
+        
+        function connect() {
+            updateStatus('connecting', 'Connexion en cours...');
+            log('Tentative de connexion à ' + socketUrl);
+            
+            socket = io(socketUrl, {
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                reconnectionAttempts: 5
+            });
+            
+            socket.on('connect', () => {
+                log('Connexion établie !', 'success');
+                updateStatus('connected', 'Connecté - Socket ID: ' + socket.id);
+                setButtonsState(true);
+                
+                // Connecter au namespace health
+                const healthSocket = io(socketUrl + '/health');
+                healthSocket.on('connect', () => {
+                    log('Connecté au namespace /health', 'success');
+                });
+                healthSocket.on('health_response', (data) => {
+                    log('Réponse Health reçue: ' + JSON.stringify(data, null, 2), 'success');
+                });
+                healthSocket.on('health_update', (data) => {
+                    log('WS /health -> health_update: ' + JSON.stringify(data, null, 2), 'success');
+                });
+                window.healthSocket = healthSocket;
+                
+                // Connecter au namespace monitoring
+                const monitoringSocket = io(socketUrl + '/monitoring');
+                monitoringSocket.on('connect', () => {
+                    log('Connecté au namespace /monitoring', 'success');
+                });
+                monitoringSocket.on('nodes_status_response', (data) => {
+                    log('Réponse Nodes Status reçue: ' + JSON.stringify(data, null, 2), 'success');
+                });
+                monitoringSocket.on('cluster_status_response', (data) => {
+                    log('Réponse Cluster Status reçue: ' + JSON.stringify(data, null, 2), 'success');
+                });
+                monitoringSocket.on('cluster_metrics', (data) => {
+                    log('WS /monitoring -> cluster_metrics: ' + JSON.stringify(data, null, 2), 'success');
+                });
+                monitoringSocket.on('alerts_update', (data) => {
+                    log('WS /monitoring -> alerts_update: ' + JSON.stringify(data, null, 2), 'error');
+                });
+                window.monitoringSocket = monitoringSocket;
+            });
+            
+            socket.on('disconnect', (reason) => {
+                log('Déconnecté: ' + reason, 'error');
+                updateStatus('disconnected', 'Déconnecté');
+                setButtonsState(false);
+            });
+            
+            socket.on('connection_confirmed', (data) => {
+                log('Confirmation: ' + JSON.stringify(data, null, 2), 'success');
+            });
+            
+            socket.on('redis_cluster_metrics', (data) => {
+                log('Événement Redis (cluster:metrics): ' + JSON.stringify(data, null, 2), 'success');
+            });
+            
+            socket.on('redis_cluster_health', (data) => {
+                log('Événement Redis (cluster:health): ' + JSON.stringify(data, null, 2), 'success');
+            });
+            
+            socket.on('redis_cluster_alerts', (data) => {
+                log('Événement Redis (cluster:alerts): ' + JSON.stringify(data, null, 2), 'error');
+            });
+
+            socket.on('redis_celery_metrics', (data) => {
+                log('Événement Redis (celery:metrics): ' + JSON.stringify(data, null, 2), 'success');
+            });
+            
+            socket.on('connect_error', (error) => {
+                log('Erreur de connexion: ' + error.message, 'error');
+                updateStatus('disconnected', 'Erreur de connexion');
+            });
+        }
+        
+        function disconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+            }
+            if (window.healthSocket) {
+                window.healthSocket.disconnect();
+            }
+            if (window.monitoringSocket) {
+                window.monitoringSocket.disconnect();
+            }
+            log('Déconnexion manuelle', 'info');
+            updateStatus('disconnected', 'Déconnecté');
+            setButtonsState(false);
+        }
+        
+        function requestHealth() {
+            if (window.healthSocket && window.healthSocket.connected) {
+                log('Envoi de la demande de health...', 'info');
+                window.healthSocket.emit('request_health', {});
+            } else {
+                log('Pas connecté au namespace /health', 'error');
+            }
+        }
+        
+        function requestNodes() {
+            if (window.monitoringSocket && window.monitoringSocket.connected) {
+                log('Envoi de la demande de nodes status...', 'info');
+                window.monitoringSocket.emit('request_nodes_status', {});
+            } else {
+                log('Pas connecté au namespace /monitoring', 'error');
+            }
+        }
+        
+        // Initialiser l'état des boutons
+        setButtonsState(false);
+    </script>
+</body>
+</html>
+

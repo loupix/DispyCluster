@@ -45,9 +45,21 @@ async def get_cluster_nodes():
     """Liste des nœuds du cluster avec cache Redis."""
     try:
         from web.views.cluster_view import ClusterView
+        from web.app import websocket_manager
+        from datetime import datetime
         
         cluster_view = ClusterView()
         nodes_data = await cluster_view.get_nodes_status()
+        
+        # Publier les données sur Redis pour les clients WebSocket
+        try:
+            await websocket_manager.publish_event("cluster:metrics", {
+                "nodes": nodes_data,
+                "timestamp": datetime.now().isoformat()
+            })
+        except Exception as e:
+            logger.warning(f"Impossible de publier sur Redis: {e}")
+        
         return nodes_data
     except Exception as e:
         return []

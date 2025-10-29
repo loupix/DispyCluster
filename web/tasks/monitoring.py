@@ -28,7 +28,6 @@ def collect_metrics():
         result = loop.run_until_complete(_collect_metrics_async())
         loop.close()
         
-        logger.info(f"Collecte terminée - {result.get('nodes_processed', 0)} nœuds traités")
         return {
             "status": "collected",
             "timestamp": datetime.utcnow().isoformat(),
@@ -55,7 +54,6 @@ async def _collect_metrics_async():
         # Traiter les résultats et mettre à jour le cache
         for i, result in enumerate(node_results):
             if isinstance(result, Exception):
-                print(f"[CELERY] Erreur pour {NODES[i]}: {result}")
                 continue
                 
             if result and result.get("metrics"):
@@ -71,7 +69,6 @@ async def _collect_metrics_async():
                 history_manager.store_metrics_point(node, result["metrics"])
                 
                 results["nodes_processed"] += 1
-                print(f"[CELERY] Métriques collectées pour {node}")
         
         # Mettre à jour les métriques agrégées
         if results["nodes_processed"] > 0:
@@ -88,7 +85,6 @@ async def _collect_node_metrics(client: httpx.AsyncClient, node: str) -> Dict[st
         response = await client.get(health_url)
         
         if response.status_code != 200:
-            print(f"[CELERY] {node} non accessible (HTTP {response.status_code})")
             return None
         
         # Récupérer les métriques
@@ -99,11 +95,9 @@ async def _collect_node_metrics(client: httpx.AsyncClient, node: str) -> Dict[st
             metrics = _parse_node_exporter_metrics(response.text, node)
             return {"node": node, "metrics": metrics}
         else:
-            print(f"[CELERY] Erreur métriques {node}: HTTP {response.status_code}")
             return None
             
-    except Exception as e:
-        print(f"[CELERY] Erreur collecte {node}: {e}")
+    except Exception:
         return None
 
 def _parse_node_exporter_metrics(metrics_text: str, node: str) -> Dict[str, Any]:
@@ -234,11 +228,67 @@ def _update_aggregated_metrics():
             aggregated["cluster_stats"]["avg_memory"] = total_memory / online_count
             aggregated["cluster_stats"]["avg_temperature"] = total_temp / online_count
         
-        # Stocker dans Redis
-        redis_client.setex("cluster:metrics", METRICS_CONFIG["aggregated_ttl"], json.dumps(aggregated))
+        # Stocker dans Redis (metrics agrégées)
+        payload = json.dumps(aggregated)
+        redis_client.setex("cluster:metrics", METRICS_CONFIG["aggregated_ttl"], payload)
         
-    except Exception as e:
-        print(f"[CELERY] Erreur mise à jour métriques agrégées: {e}")
+        # Publier sur pub/sub cluster:metrics
+        try:
+            redis_client.publish("cluster:metrics", payload)
+        except Exception as pub_err:
+            logger.warning(f"Publication pub/sub cluster:metrics échouée: {pub_err}")
+
+        # Calculer et publier la santé globale sur cluster:health
+        try:
+            total_nodes = aggregated["cluster_stats"].get("total_nodes", 0)
+            online_nodes = aggregated["cluster_stats"].get("online_nodes", 0)
+            down_nodes = max(total_nodes - online_nodes, 0)
+            if down_nodes == 0 and total_nodes > 0:
+                overall_status = "healthy"
+            elif down_nodes <= total_nodes // 2:
+                overall_status = "warning"
+            else:
+                overall_status = "critical"
+
+            health_data = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "overall_status": overall_status,
+                "nodes_online": online_nodes,
+                "nodes_total": total_nodes,
+                "issues": [] if overall_status == "healthy" else [f"{down_nodes} nœuds hors ligne"]
+            }
+            redis_client.publish("cluster:health", json.dumps(health_data))
+        except Exception as pub_err:
+            logger.warning(f"Publication pub/sub cluster:health échouée: {pub_err}")
+
+        # Générer et publier des alertes sur cluster:alerts
+        try:
+            alerts = []
+            # Seuils simples
+            cpu_avg = aggregated["cluster_stats"].get("avg_cpu", 0)
+            mem_avg = aggregated["cluster_stats"].get("avg_memory", 0)
+            if cpu_avg > 90:
+                alerts.append({"id": "high_cpu_avg", "type": "warning", "message": f"CPU moyenne élevée: {cpu_avg:.1f}%"})
+            if mem_avg > 90:
+                alerts.append({"id": "high_memory_avg", "type": "warning", "message": f"Mémoire moyenne élevée: {mem_avg:.1f}%"})
+
+            # Alertes par nœud (exemple température > 80C)
+            for node, metrics in aggregated.get("nodes", {}).items():
+                temp = metrics.get("temperature", 0)
+                if temp and temp > 80:
+                    alerts.append({"id": f"high_temp_{node}", "type": "critical", "message": f"{node}: Température élevée ({temp:.1f}°C)"})
+
+            alerts_payload = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "active_alerts": alerts,
+                "alert_count": len(alerts)
+            }
+            redis_client.publish("cluster:alerts", json.dumps(alerts_payload))
+        except Exception as pub_err:
+            logger.warning(f"Publication pub/sub cluster:alerts échouée: {pub_err}")
+        
+    except Exception:
+        pass
 
 @celery_app.task
 def get_cached_metrics():
@@ -268,8 +318,7 @@ def get_cached_metrics():
             }
         }
         
-    except Exception as e:
-        print(f"[CELERY] Erreur récupération cache: {e}")
+    except Exception:
         return {
             "timestamp": datetime.utcnow().isoformat(),
             "nodes": {},
@@ -281,3 +330,6 @@ def get_cached_metrics():
                 "avg_temperature": 0
             }
         }
+
+
+

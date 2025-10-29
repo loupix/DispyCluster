@@ -304,10 +304,20 @@
     
     // Actions (supprimées - pas nécessaires)
     
+    // Fonction pour rafraîchir les métriques depuis WebSocket
+    function refreshMetrics(data) {
+        if (data.nodes) {
+            nodes = data.nodes;
+            updateNodesList();
+            updateOverviewMetrics();
+            updateCharts();
+        }
+    }
+    
     // Charger les nœuds au démarrage
     document.addEventListener('DOMContentLoaded', loadNodes);
     
-    // Rafraîchir automatiquement toutes les 30 secondes
+    // Rafraîchir automatiquement toutes les 30 secondes (fallback si WebSocket échoue)
     setInterval(loadNodes, 30000);
 </script>
 {% endblock %}

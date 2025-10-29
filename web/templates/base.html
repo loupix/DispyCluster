@@ -9,6 +9,9 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
+    <!-- Socket.IO Client -->
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    
     <style>
         :root {
             --primary: #3b82f6;
@@ -233,11 +236,66 @@
             }
         }
         
+        // Initialiser WebSocket pour les mises à jour en temps réel
+        let wsSocket = null;
+        let wsConnected = false;
+        
+        function initWebSocket() {
+            try {
+                wsSocket = io({
+                    transports: ['websocket', 'polling'],
+                    reconnection: true,
+                    reconnectionDelay: 1000,
+                    reconnectionDelayMax: 5000,
+                    reconnectionAttempts: Infinity
+                });
+                
+                wsSocket.on('connect', () => {
+                    wsConnected = true;
+                    console.log('WebSocket connecté');
+                    
+                    // Afficher un indicateur discret
+                    const wsIndicator = document.getElementById('ws-indicator');
+                    if (wsIndicator) {
+                        wsIndicator.style.display = 'block';
+                    }
+                });
+                
+                wsSocket.on('disconnect', () => {
+                    wsConnected = false;
+                    console.log('WebSocket déconnecté');
+                    const wsIndicator = document.getElementById('ws-indicator');
+                    if (wsIndicator) {
+                        wsIndicator.style.display = 'none';
+                    }
+                });
+                
+                // Écouter les événements Redis pour les mises à jour automatiques
+                wsSocket.on('redis_cluster_metrics', (data) => {
+                    console.log('Mise à jour des métriques via WebSocket:', data);
+                    // Déclencher un refresh automatique si on est sur une page qui utilise les métriques
+                    if (typeof refreshMetrics === 'function') {
+                        refreshMetrics(data);
+                    }
+                });
+                
+                wsSocket.on('connection_confirmed', (data) => {
+                    console.log('WebSocket confirmé:', data);
+                });
+                
+            } catch (error) {
+                console.error('Erreur WebSocket:', error);
+            }
+        }
+        
         // Vérifier le statut toutes les 30 secondes
         setInterval(checkClusterStatus, 30000);
         
         // Vérifier au chargement
-        document.addEventListener('DOMContentLoaded', checkClusterStatus);
+        document.addEventListener('DOMContentLoaded', () => {
+            checkClusterStatus();
+            initWebSocket();
+        });
     </script>
     
     {% block scripts %}{% endblock %}

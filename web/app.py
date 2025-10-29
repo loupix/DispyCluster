@@ -24,6 +24,8 @@ from pydantic import BaseModel, HttpUrl
 import httpx
 import sqlite3
 import uvicorn
+from typing import cast
+from contextlib import asynccontextmanager
 
 # Importer les routes API
 from web.api.cluster import router as cluster_router
@@ -36,6 +38,9 @@ from web.api.graphs import router as graphs_router
 # Importer les vues intelligentes
 from web.views.cluster_view import ClusterView
 from web.views.monitoring_view import MonitoringView
+
+# Importer le gestionnaire WebSocket
+from web.core.websocket_manager import WebSocketManager
 
 # Configuration
 DATABASE_PATH = "web/data/cluster.db"
@@ -51,10 +56,33 @@ SERVICES = {
     "api_gateway": "http://localhost:8084"
 }
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialise l'appli au démarrage et gère le teardown proprement."""
+    init_database()
+    print("Base de données initialisée")
+    try:
+        await websocket_manager.start_redis_subscriber()
+        print("WebSocket Manager démarré avec support Redis pub/sub")
+    except Exception as e:
+        print(f"Erreur lors du démarrage de WebSocket Manager: {e}")
+
+    # Pas de snapshot Celery périodique
+
+    yield
+
+    try:
+        if websocket_manager.pubsub is not None:
+            websocket_manager.pubsub.close()
+    except Exception:
+        pass
+    # Rien à arrêter côté Celery snapshot
+
 app = FastAPI(
     title="DispyCluster Web Interface",
     description="Interface web unifiée pour le cluster de Raspberry Pi",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # Middleware CORS
@@ -81,6 +109,10 @@ app.include_router(graphs_router)
 # Initialiser les vues intelligentes
 cluster_view = ClusterView()
 monitoring_view = MonitoringView(cluster_view)
+
+# Initialiser le gestionnaire WebSocket
+websocket_manager = WebSocketManager()
+websocket_manager.init_app(app)
 
 # Modèles de données
 class JobRequest(BaseModel):
@@ -208,7 +240,8 @@ async def health():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "version": "2.0.0",
-        "celery": {"available": _celery_available, "broker": broker_ok}
+        "celery": {"available": _celery_available, "broker": broker_ok},
+        "websocket": {"connected_clients": len(websocket_manager.connected_clients)}
     }
 
 @app.get("/api/cluster/overview")
@@ -227,7 +260,15 @@ async def get_cluster_overview():
 async def get_cluster_nodes():
     """Liste intelligente des nœuds du cluster."""
     try:
-        return await cluster_view.get_nodes_status()
+        nodes_data = await cluster_view.get_nodes_status()
+        
+        # Publier les données sur Redis pour les clients WebSocket
+        await websocket_manager.publish_event("cluster:metrics", {
+            "nodes": nodes_data,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        return nodes_data
     except Exception:
         # Retourner une liste vide en cas d'erreur pour ne pas casser le front
         return []
@@ -434,6 +475,8 @@ async def api_scrape(payload: Dict[str, Any]):
     task = celery_run_scrape.delay(payload)
     return {"task_id": task.id}
 
+# Endpoint retiré: pas de snapshot Celery
+
 @app.post("/api/scrape/{task_id}/abort")
 async def abort_scrape(task_id: str):
     if not _celery_available:
@@ -585,12 +628,21 @@ async def tests_page(request: Request):
         "title": "Tests en Temps Réel"
     })
 
-# Événements
-@app.on_event("startup")
-async def startup_event():
-    """Initialiser l'application au démarrage."""
-    init_database()
-    print("Base de données initialisée")
+@app.get("/websocket-test", response_class=HTMLResponse)
+async def websocket_test_page(request: Request):
+    """Page de test WebSocket."""
+    with open("web/static/websocket_test.html", "r", encoding="utf-8") as f:
+        content = f.read()
+    return HTMLResponse(content=content)
+
+# Événements supprimés (remplacés par lifespan)
+
+# Modèle d'application pour le running direct
+def create_socketio_app():
+    """Créer l'application combinée SocketIO + FastAPI."""
+    return websocket_manager.app if websocket_manager.app else app
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8085)
+    # Utiliser l'app WebSocket au lieu de l'app FastAPI directement
+    socketio_app = create_socketio_app()
+    uvicorn.run(socketio_app, host="0.0.0.0", port=8085)

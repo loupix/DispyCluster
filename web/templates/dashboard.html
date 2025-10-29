@@ -261,12 +261,19 @@
         loadDashboardData();
     }
     
+    // Fonction pour rafraîchir les métriques depuis WebSocket
+    function refreshMetrics(data) {
+        if (data.nodes) {
+            updateNodesList(data.nodes);
+        }
+    }
+    
     // Charger les données au démarrage
     document.addEventListener('DOMContentLoaded', () => {
         loadDashboardData();
         loadNodes();
         
-        // Rafraîchir automatiquement toutes les 30 secondes
+        // Rafraîchir automatiquement toutes les 30 secondes (fallback si WebSocket échoue)
         setInterval(() => {
             loadDashboardData();
             loadNodes();
