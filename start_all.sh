@@ -173,7 +173,7 @@ echo -e "${GREEN}Démarrage de l'API/UI (Uvicorn) sur http://0.0.0.0:8085...${NC
 echo "📊 Graphiques disponibles sur: http://localhost:8085/monitoring"
 echo "🔧 API Graphiques: http://localhost:8085/api/graphs/"
 export WEB_SIMULATE_NODES=0
-uvicorn web.app:app --host 0.0.0.0 --port 8085
+uvicorn web.app:create_socketio_app --factory --host 0.0.0.0 --port 8085
 
 # Le cleanup se fera automatiquement via le trap quand uvicorn s'arrêtera
 

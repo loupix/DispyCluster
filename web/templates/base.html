@@ -10,7 +10,12 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <!-- Socket.IO Client -->
-    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="/static/js/socket.io.min.js"></script>
+    <!-- htmx Client -->
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    
+    <!-- App CSS -->
+    <link rel="stylesheet" href="/static/css/base.css">
     
     <style>
         :root {
@@ -97,7 +102,7 @@
 </head>
 <body>
     <!-- Navigation -->
-    <nav class="glass fixed top-0 left-0 right-0 z-50 px-6 py-4">
+    <nav class="glass fixed top-0 left-0 right-0 z-50 px-6 py-4" hx-boost="true" hx-push-url="true">
         <div class="max-w-7xl mx-auto flex items-center justify-between">
             <div class="flex items-center space-x-4">
                 <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
@@ -160,7 +165,7 @@
     </nav>
     
     <!-- Contenu principal -->
-    <main class="pt-24 pb-8">
+    <main id="app-content" class="pt-24 pb-8">
         <div class="max-w-7xl mx-auto px-6">
             {% block content %}{% endblock %}
         </div>
@@ -237,60 +242,11 @@
         }
         
         // Initialiser WebSocket pour les mises à jour en temps réel
-        let wsSocket = null;
-        let wsConnected = false;
-        
-        function initWebSocket() {
-            try {
-                wsSocket = io({
-                    transports: ['websocket', 'polling'],
-                    reconnection: true,
-                    reconnectionDelay: 1000,
-                    reconnectionDelayMax: 5000,
-                    reconnectionAttempts: Infinity
-                });
-                
-                wsSocket.on('connect', () => {
-                    wsConnected = true;
-                    console.log('WebSocket connecté');
-                    
-                    // Afficher un indicateur discret
-                    const wsIndicator = document.getElementById('ws-indicator');
-                    if (wsIndicator) {
-                        wsIndicator.style.display = 'block';
-                    }
-                });
-                
-                wsSocket.on('disconnect', () => {
-                    wsConnected = false;
-                    console.log('WebSocket déconnecté');
-                    const wsIndicator = document.getElementById('ws-indicator');
-                    if (wsIndicator) {
-                        wsIndicator.style.display = 'none';
-                    }
-                });
-                
-                // Écouter les événements Redis pour les mises à jour automatiques
-                wsSocket.on('redis_cluster_metrics', (data) => {
-                    console.log('Mise à jour des métriques via WebSocket:', data);
-                    // Déclencher un refresh automatique si on est sur une page qui utilise les métriques
-                    if (typeof refreshMetrics === 'function') {
-                        refreshMetrics(data);
-                    }
-                });
-                
-                wsSocket.on('connection_confirmed', (data) => {
-                    console.log('WebSocket confirmé:', data);
-                });
-                
-            } catch (error) {
-                console.error('Erreur WebSocket:', error);
-            }
-        }
+        // Ici, on supprime dès la ligne 245 jusqu'à initWebSocket() et ses usages, pour ne plus jamais déclarer 'let wsSocket = ...' dans base.html
         
         // Remplacer le polling XHR par WebSocket /health
         document.addEventListener('DOMContentLoaded', () => {
-            initWebSocket();
+            // initWebSocket(); // Supprimé
             try {
                 const healthSocket = io('/health');
                 healthSocket.on('health_update', (data) => {
@@ -308,6 +264,11 @@
         });
     </script>
     
-    {% block scripts %}{% endblock %}
+    <!-- App scripts globaux -->
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/router.js"></script>
+    <script src="/static/js/pages/dashboard.js"></script>
+    <script src="/static/js/pages/nodes.js"></script>
+    <script src="/static/js/pages/monitoring.js"></script>
 </body>
 </html>
