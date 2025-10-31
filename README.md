@@ -8,12 +8,13 @@ DispyCluster est un système complet pour orchestrer des tâches de scraping sur
 
 ### Fonctionnalités principales
 
-- **Cluster distribué** : Orchestration de tâches sur plusieurs Raspberry Pi
-- **Scraping intelligent** : Distribution automatique des tâches de scraping
+- **Cluster distribué** : Orchestration de tâches sur plusieurs Raspberry Pi avec Dispy
+- **Scraping intelligent** : Service de scraping modulaire distribué sur le cluster
 - **Monitoring en temps réel** : Surveillance des performances et santé du cluster
 - **Planification avancée** : Tâches récurrentes et workflows complexes
-- **API unifiée** : Interface REST pour tous les services
-- **Tableau de bord** : Visualisation des métriques et statuts
+- **API unifiée** : Interface REST pour tous les services via API Gateway
+- **Tableau de bord** : Visualisation des métriques et statuts en temps réel
+- **Architecture modulaire** : Services extensibles basés sur BaseService
 
 ## Architecture
 
@@ -335,7 +336,7 @@ ping node6.lan
 
 2. Vérifier les services sur les workers :
 ```bash
-curl http://node6.lan:8080/health
+curl http://node6.lan:9100/metrics  # node_exporter
 ```
 
 3. Ping via l'API :

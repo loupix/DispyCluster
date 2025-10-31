@@ -10,7 +10,7 @@ Le système DispyCluster a été étendu avec plusieurs services spécialisés q
 - **Cluster Controller** (port 8081) : Gestion du cluster et des jobs
 - **Monitoring Service** (port 8082) : Surveillance et métriques
 - **Scheduler Service** (port 8083) : Planification des tâches
-- **Scraper Service** (port 8080) : Service de scraping existant
+- **Service Scraper** (port 8085, intégré dans web/app) : Service de scraping modulaire
 
 ## Installation
 
@@ -164,6 +164,60 @@ curl -X POST http://localhost:8083/tasks \
 # Exécuter une tâche immédiatement
 curl -X POST http://localhost:8083/tasks/task_123/run
 ```
+
+### 5. Service Scraper (Port 8085, intégré dans web/app)
+
+Service de scraping modulaire avec architecture extensible.
+
+**Architecture :**
+- Hérite de `BaseService` pour une architecture modulaire et extensible
+- Distribution automatique sur le cluster Dispy
+- Base de données SQLite (local) / PostgreSQL (prod)
+- Événements WebSocket/Redis en temps réel
+- Interface web dédiée
+
+**Endpoints principaux :**
+- `POST /api/scrapers/submit` : Soumettre un scraping
+- `GET /api/scrapers/jobs` : Liste des jobs
+- `GET /api/scrapers/jobs/{job_id}` : Détails d'un job
+- `GET /api/scrapers/history` : Historique des scrapings
+- `GET /api/scrapers/jobs/{job_id}/results` : Résultats détaillés
+- `DELETE /api/scrapers/jobs/{job_id}` : Annuler un job
+- `GET /api/scrapers/stats` : Statistiques du service
+
+**Via API Gateway :**
+- `POST /scrapers/submit` : Route vers le service scraper
+- `GET /scrapers/jobs` : Liste des jobs
+- `POST /scrape` : Endpoint de convenance
+
+**Interface web :**
+- Page dédiée : `http://localhost:8085/scrapers`
+- Dashboard avec statistiques en temps réel
+- Gestion des jobs (soumettre, annuler, voir détails)
+
+**Exemple d'utilisation :**
+```bash
+# Soumettre un scraping
+curl -X POST http://localhost:8085/api/scrapers/submit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com",
+    "max_pages": 10,
+    "timeout_s": 10,
+    "same_origin_only": true,
+    "priority": 1
+  }'
+
+# Consulter les stats
+curl http://localhost:8085/api/scrapers/stats
+
+# Via API Gateway
+curl -X POST http://localhost:8084/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"start_url": "https://example.com", "max_pages": 10}'
+```
+
+Voir `docs/SCRAPER_SERVICE_INTEGRATION.md` pour plus de détails.
 
 ## Configuration
 
@@ -396,7 +450,7 @@ ping node6.lan
 
 2. Vérifier les services sur les workers :
 ```bash
-curl http://node6.lan:8080/health
+curl http://node6.lan:9100/metrics  # node_exporter
 ```
 
 3. Ping via l'API :
