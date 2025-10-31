@@ -50,7 +50,7 @@ class Dispatcher:
                 sys.path.insert(0, str(parent_dir))
             
             # Importer les fonctions de computation
-            from scripts.dispy_functions import cpu_computation
+            from scripts.dispy_functions import cpu_computation, scraping_computation
             
             # Configurer le répertoire de cache Dispy
             cache_dir = os.environ.get("DISPY_CACHE_DIR")
@@ -65,16 +65,24 @@ class Dispatcher:
             cwd_before = os.getcwd()
             try:
                 os.chdir(cache_dir)
-                # Créer le cluster avec la fonction de computation
-                self.dispy_cluster = dispy.JobCluster(cpu_computation)
+                # Créer le cluster avec la fonction de scraping (plus polyvalente)
+                # Note: Dispy peut utiliser plusieurs fonctions, on démarre avec scraping
+                self.dispy_cluster = dispy.JobCluster(scraping_computation)
             finally:
                 os.chdir(cwd_before)
             print(f"✓ Cluster Dispy connecté avec succès")
             
-            # Tester le cluster avec un job simple
-            test_job = self.dispy_cluster.submit({'iterations': 1000})
+            # Tester le cluster avec un job simple (scraping)
+            test_job = self.dispy_cluster.submit({
+                'url': 'https://example.com',
+                'max_pages': 1,
+                'timeout_s': 5
+            })
             test_result = test_job()
-            print(f"✓ Test cluster réussi: {test_result.get('pi_approximation', 'N/A')}")
+            if test_result and test_result.get('success'):
+                print(f"✓ Test cluster réussi: {len(test_result.get('crawled', []))} pages scrapées")
+            else:
+                print(f"⚠️ Test cluster avec avertissement: {test_result.get('error', 'Unknown')}")
             
         except Exception as e:
             print(f"⚠️ Impossible de se connecter au cluster Dispy: {e}")
@@ -225,13 +233,17 @@ class Dispatcher:
         """Envoie une tâche via Dispy."""
         try:
             # Préparer les données de la tâche selon le type
-            task_type = task.payload.get("job_type", "cpu")
+            task_type = task.payload.get("job_type", "scraper")
+            service_name = task.payload.get("service_name", "scraper")
             
-            if task_type == "scraping":
+            # Si c'est un scraper ou scraping
+            if task_type in ["scraper", "scraping"] or service_name == "scraper":
                 task_data = {
-                    "url": task.payload.get("start_url", ""),
-                    "max_pages": task.payload.get("max_pages", 5),
-                    "timeout_s": task.payload.get("timeout_s", 10)
+                    "url": task.payload.get("url", ""),
+                    "max_pages": task.payload.get("max_pages", 10),
+                    "timeout_s": task.payload.get("timeout_s", 10),
+                    "same_origin_only": task.payload.get("same_origin_only", True),
+                    "job_id": task.payload.get("job_id", task.id)
                 }
             else:  # CPU par défaut
                 task_data = {

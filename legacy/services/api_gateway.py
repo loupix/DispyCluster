@@ -21,7 +21,7 @@ SERVICES = {
     "cluster_controller": "http://localhost:8081",
     "monitoring": "http://localhost:8082", 
     "scheduler": "http://localhost:8083",
-    "scraper": "http://localhost:8080"  # Service de scraping existant
+    "scraper_service": "http://localhost:8085"  # Service scraper intégré dans web/app
 }
 
 app = FastAPI(
@@ -70,7 +70,7 @@ def root():
             "cluster": "/cluster",
             "monitoring": "/monitoring",
             "scheduler": "/scheduler",
-            "scraper": "/scraper"
+            "scrapers": "/scrapers"
         }
     }
 
@@ -212,10 +212,10 @@ async def proxy_scheduler(request: Request, path: str):
     """Proxy vers le service de planification."""
     return await proxy_request(request, SERVICES["scheduler"], path)
 
-@app.api_route("/scraper/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def proxy_scraper(request: Request, path: str):
-    """Proxy vers le service de scraping."""
-    return await proxy_request(request, SERVICES["scraper"], path)
+@app.api_route("/scrapers/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy_scrapers_service(request: Request, path: str):
+    """Proxy vers le service scraper (intégré dans web/app)."""
+    return await proxy_request(request, SERVICES["scraper_service"], f"api/scrapers/{path}")
 
 async def proxy_request(request: Request, service_url: str, path: str):
     """Proxifier une requête vers un service."""
@@ -264,11 +264,14 @@ async def quick_scrape(
     timeout_s: int = 30,
     priority: int = 1
 ):
-    """Lancer un scraping rapide via l'API Gateway."""
+    """Lancer un scraping rapide via l'API Gateway.
+    
+    Route vers le service scraper intégré dans web/app.
+    """
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             payload = {
-                "start_url": str(start_url),
+                "url": str(start_url),
                 "max_pages": max_pages,
                 "same_origin_only": same_origin_only,
                 "timeout_s": timeout_s,
@@ -276,12 +279,20 @@ async def quick_scrape(
             }
             
             response = await client.post(
-                f"{SERVICES['cluster_controller']}/scrape",
+                f"{SERVICES['scraper_service']}/api/scrapers/submit",
                 json=payload
             )
             
+            if response.status_code >= 400:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text
+                )
+            
             return response.json()
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors du scraping: {str(e)}")
 
@@ -293,23 +304,40 @@ async def quick_batch_scrape(
     timeout_s: int = 30,
     priority: int = 1
 ):
-    """Lancer un scraping en lot via l'API Gateway."""
+    """Lancer un scraping en lot via l'API Gateway.
+    
+    Route vers le service scraper intégré dans web/app.
+    """
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            payload = {
-                "urls": [str(url) for url in urls],
-                "max_pages": max_pages,
-                "same_origin_only": same_origin_only,
-                "timeout_s": timeout_s,
-                "priority": priority
+            # Soumettre chaque URL individuellement au service
+            results = []
+            for url in urls:
+                payload = {
+                    "url": str(url),
+                    "max_pages": max_pages,
+                    "same_origin_only": same_origin_only,
+                    "timeout_s": timeout_s,
+                    "priority": priority
+                }
+                
+                try:
+                    response = await client.post(
+                        f"{SERVICES['scraper_service']}/api/scrapers/submit",
+                        json=payload
+                    )
+                    if response.status_code == 200:
+                        results.append(response.json())
+                    else:
+                        results.append({"error": f"HTTP {response.status_code}", "url": str(url)})
+                except Exception as e:
+                    results.append({"error": str(e), "url": str(url)})
+            
+            return {
+                "success": True,
+                "total_urls": len(urls),
+                "results": results
             }
-            
-            response = await client.post(
-                f"{SERVICES['cluster_controller']}/scrape/batch",
-                json=payload
-            )
-            
-            return response.json()
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors du scraping en lot: {str(e)}")

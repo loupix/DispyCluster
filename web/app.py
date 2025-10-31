@@ -34,6 +34,7 @@ from web.api.monitoring import router as monitoring_router
 from web.api.tests import router as tests_router
 from web.api.metrics_cache import router as metrics_cache_router
 from web.api.graphs import router as graphs_router
+from web.api.scrapers import router as scrapers_router
 
 # Importer les vues intelligentes
 from web.views.cluster_view import ClusterView
@@ -41,6 +42,9 @@ from web.views.monitoring_view import MonitoringView
 
 # Importer le gestionnaire WebSocket
 from web.core.websocket_manager import WebSocketManager
+
+# Importer les services
+from web.services.scraper_service import ScraperService
 
 # Configuration
 DATABASE_PATH = "web/data/cluster.db"
@@ -52,7 +56,6 @@ SERVICES = {
     "cluster_controller": "http://localhost:8081",
     "monitoring": "http://localhost:8082", 
     "scheduler": "http://localhost:8083",
-    "scraper": "http://localhost:8080",
     "api_gateway": "http://localhost:8084"
 }
 
@@ -98,14 +101,6 @@ app.add_middleware(
 templates = Jinja2Templates(directory=TEMPLATES_PATH)
 app.mount("/static", StaticFiles(directory=STATIC_PATH), name="static")
 
-# Inclure les routes API
-app.include_router(cluster_router)
-app.include_router(jobs_router)
-app.include_router(monitoring_router)
-app.include_router(tests_router)
-app.include_router(metrics_cache_router)
-app.include_router(graphs_router)
-
 # Initialiser les vues intelligentes
 cluster_view = ClusterView()
 monitoring_view = MonitoringView(cluster_view)
@@ -113,6 +108,21 @@ monitoring_view = MonitoringView(cluster_view)
 # Initialiser le gestionnaire WebSocket
 websocket_manager = WebSocketManager()
 websocket_manager.init_app(app)
+
+# Initialiser les services
+scraper_service = ScraperService(
+    dispatcher=cluster_view.dispatcher,
+    task_queue=cluster_view.task_queue
+)
+
+# Inclure les routes API
+app.include_router(cluster_router)
+app.include_router(jobs_router)
+app.include_router(monitoring_router)
+app.include_router(tests_router)
+app.include_router(metrics_cache_router)
+app.include_router(graphs_router)
+app.include_router(scrapers_router)
 
 # Modèles de données
 class JobRequest(BaseModel):
@@ -611,6 +621,14 @@ async def tests_page(request: Request):
     return templates.TemplateResponse("tests.html", {
         "request": request,
         "title": "Tests en Temps Réel"
+    })
+
+@app.get("/scrapers", response_class=HTMLResponse)
+async def scrapers_page(request: Request):
+    """Page de gestion des scrapers."""
+    return templates.TemplateResponse("scrapers.html", {
+        "request": request,
+        "title": "Service de Scraping"
     })
 
 @app.get("/websocket-test", response_class=HTMLResponse)

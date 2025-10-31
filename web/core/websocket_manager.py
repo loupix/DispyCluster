@@ -78,12 +78,14 @@ class WebSocketManager:
         """Démarrer l'abonnement Redis pour recevoir les événements."""
         self.pubsub = self.redis_client.pubsub(ignore_subscribe_messages=True)
         
-        # S'abonner aux canaux Redis pour le monitoring et Celery
+        # S'abonner aux canaux Redis pour le monitoring, Celery et les services
         self.pubsub.subscribe(
             "cluster:metrics",
             "cluster:health",
             "cluster:alerts",
-            "celery:metrics"
+            "cluster:events",
+            "celery:metrics",
+            "scraper:events"  # Événements du service scraper
         )
         
         # Boucle pour écouter les messages Redis
@@ -141,6 +143,22 @@ class WebSocketManager:
                             # Monitoring namespace
                             try:
                                 await self.sio.emit("alerts_update", data, namespace="/monitoring")
+                            except Exception:
+                                pass
+                        elif channel == "scraper:events" or channel == "cluster:events":
+                            # Événements des services (scraper, etc.)
+                            event_type = data.get("event_type", "unknown")
+                            service_name = data.get("service_name", "unknown")
+                            
+                            # Diffuser l'événement spécifique au service
+                            try:
+                                await self.sio.emit(
+                                    f"service_{event_type}",
+                                    data,
+                                    namespace="/monitoring"
+                                )
+                                # Aussi en global pour compatibilité
+                                await self.sio.emit(f"{service_name}_{event_type}", data)
                             except Exception:
                                 pass
                     

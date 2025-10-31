@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}Scrapers - DispyCluster{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <!-- En-tête -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-white">Service de Scraping</h1>
+            <p class="text-blue-100 mt-2">Scraper des sites web sur le cluster Dispy</p>
+        </div>
+        <button onclick="showSubmitScrapeModal()" class="bg-white text-blue-600 px-6 py-3 rounded-lg font-medium hover:bg-blue-50 transition-colors">
+            <i class="fas fa-plus mr-2"></i>Nouveau Scraping
+        </button>
+    </div>
+    
+    <!-- Statistiques du service -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6" id="scraper-stats">
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Jobs totaux</p>
+                    <p class="text-3xl font-bold text-gray-900" id="stats-total">-</p>
+                </div>
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-list text-blue-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Jobs actifs</p>
+                    <p class="text-3xl font-bold text-gray-900" id="stats-active">-</p>
+                </div>
+                <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-spinner text-yellow-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Taux de succès</p>
+                    <p class="text-3xl font-bold text-gray-900" id="stats-success-rate">-</p>
+                </div>
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        
+        <div class="metric-card card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">En file d'attente</p>
+                    <p class="text-3xl font-bold text-gray-900" id="stats-queue">-</p>
+                </div>
+                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-clock text-purple-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Filtres -->
+    <div class="card p-6">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+            <div class="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm font-medium text-gray-700">Statut:</label>
+                    <select id="status-filter" onchange="filterScrapes()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                        <option value="">Tous</option>
+                        <option value="pending">En attente</option>
+                        <option value="running">En cours</option>
+                        <option value="completed">Terminé</option>
+                        <option value="failed">Échoué</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <button onclick="refreshScrapes()" class="text-gray-500 hover:text-gray-700 p-2">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Liste des scrapings -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-semibold text-gray-900">Scrapings récents</h2>
+            <span class="text-sm text-gray-500" id="scrapes-count">0 scrapings</span>
+        </div>
+        
+        <div id="scrapes-list">
+            <div class="flex items-center justify-center py-12">
+                <div class="loading"></div>
+                <span class="ml-3 text-gray-600">Chargement des scrapings...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Soumettre un scraping -->
+<div id="submit-scrape-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+    <div class="card p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold text-gray-900">Nouveau Scraping</h2>
+            <button onclick="hideSubmitScrapeModal()" class="text-gray-500 hover:text-gray-700">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        
+        <form id="submit-scrape-form" onsubmit="submitScrape(event)">
+            <div class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">URL à scraper *</label>
+                    <input type="url" id="scrape-url" required 
+                           placeholder="https://example.com"
+                           class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Nombre max de pages</label>
+                        <input type="number" id="scrape-max-pages" value="10" min="1" max="1000"
+                               class="w-full border border-gray-300 rounded-lg px-4 py-2">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Timeout (secondes)</label>
+                        <input type="number" id="scrape-timeout" value="10" min="1" max="300"
+                               class="w-full border border-gray-300 rounded-lg px-4 py-2">
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-2">
+                    <input type="checkbox" id="scrape-same-origin" checked class="rounded">
+                    <label for="scrape-same-origin" class="text-sm text-gray-700">Limiter au même domaine</label>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Priorité (1-10)</label>
+                    <input type="number" id="scrape-priority" value="1" min="1" max="10"
+                           class="w-full border border-gray-300 rounded-lg px-4 py-2">
+                </div>
+            </div>
+            
+            <div class="flex justify-end space-x-4 mt-6">
+                <button type="button" onclick="hideSubmitScrapeModal()" 
+                        class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                    Annuler
+                </button>
+                <button type="submit" 
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <i class="fas fa-play mr-2"></i>Lancer le scraping
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Détails d'un scraping -->
+<div id="scrape-details-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+    <div class="card p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold text-gray-900">Détails du Scraping</h2>
+            <button onclick="hideScrapeDetailsModal()" class="text-gray-500 hover:text-gray-700">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        
+        <div id="scrape-details-content">
+            <div class="flex items-center justify-center py-12">
+                <div class="loading"></div>
+                <span class="ml-3 text-gray-600">Chargement...</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

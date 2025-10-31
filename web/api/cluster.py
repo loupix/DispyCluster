@@ -22,8 +22,7 @@ redis_client = redis.Redis(**REDIS_CONFIG)
 SERVICES = {
     "cluster_controller": "http://localhost:8081",
     "monitoring": "http://localhost:8082", 
-    "scheduler": "http://localhost:8083",
-    "scraper": "http://localhost:8080"
+    "scheduler": "http://localhost:8083"
 }
 
 @router.get("/overview")

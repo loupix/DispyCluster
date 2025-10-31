@@ -124,6 +124,9 @@
                 <a href="/monitoring" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/monitoring' %}active{% endif %}">
                     <i class="fas fa-chart-line mr-2"></i>Monitoring
                 </a>
+                <a href="/scrapers" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/scrapers' %}active{% endif %}">
+                    <i class="fas fa-spider mr-2"></i>Scrapers
+                </a>
                 <a href="/tests" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/tests' %}active{% endif %}">
                     <i class="fas fa-vial mr-2"></i>Tests
                 </a>
@@ -270,5 +273,6 @@
     <script src="/static/js/pages/dashboard.js"></script>
     <script src="/static/js/pages/nodes.js"></script>
     <script src="/static/js/pages/monitoring.js"></script>
+    <script src="/static/js/pages/scrapers.js"></script>
 </body>
 </html>
