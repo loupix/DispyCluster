@@ -163,3 +163,41 @@ def ts_range(
     return [(int(ts), float(val)) for ts, val in data]
 
 
+def ts_mrange(
+    from_ts,
+    to_ts,
+    filters,
+    aggregation: Optional[str] = None,
+    bucket_ms: Optional[int] = None,
+):
+    """Lit plusieurs séries par labels avec TS.MRANGE.
+
+    - filters: liste de filtres label=value (ex: ["metric=cpu.usage"]).
+    - aggregation/bucket_ms optionnels.
+    Retourne une liste d'objets: {key, labels, points}.
+    """
+    client = get_redis_client()
+    args = ["TS.MRANGE", from_ts, to_ts]
+    if aggregation and bucket_ms:
+        args.extend(["AGGREGATION", aggregation, bucket_ms])
+    # WITHLABELS pour identifier les séries (host, metric, etc.)
+    args.append("WITHLABELS")
+    args.append("FILTER")
+    if isinstance(filters, (list, tuple)):
+        args.extend(filters)
+    else:
+        args.append(str(filters))
+
+    raw = client.execute_command(*args)
+    # Format: [[key, [[label, value]...], [[ts,val]...]], ...]
+    result = []
+    for serie in raw:
+        key = serie[0]
+        labels_list = serie[1] if len(serie) > 1 else []
+        samples = serie[2] if len(serie) > 2 else []
+        labels = {k: v for k, v in labels_list}
+        points = [(int(ts), float(val)) for ts, val in samples]
+        result.append({"key": key, "labels": labels, "points": points})
+    return result
+
+

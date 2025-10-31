@@ -152,6 +152,28 @@
             </div>
         </div>
     </div>
+
+    <!-- Graphe multi-séries CPU par hôte -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">CPU - Multi-séries (par hôte)</h3>
+            <div class="flex items-center space-x-2">
+                <select id="cpu-multi-time-range" onchange="updateCpuMultiChart()" class="border border-gray-300 rounded-lg px-2 py-1 text-sm">
+                    <option value="1">1h</option>
+                    <option value="6">6h</option>
+                    <option value="24" selected>24h</option>
+                    <option value="168">7j</option>
+                </select>
+            </div>
+        </div>
+        <div style="height: 300px;">
+            <div id="cpu-multi-chart-loading" class="flex items-center justify-center h-full">
+                <div class="loading"></div>
+                <span class="ml-3 text-gray-600">Chargement du graphique CPU multi-séries...</span>
+            </div>
+            <canvas id="cpu-multi-chart" style="display: none;"></canvas>
+        </div>
+    </div>
     
     <!-- Liste des nœuds -->
     <div class="card p-6">

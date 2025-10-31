@@ -5,6 +5,7 @@
     let memoryChart = null;
     let diskChart = null;
     let tempChart = null;
+    let cpuMultiChart = null;
 
     // Flags pour contrôler le flux et éviter l'interférence WS/XHR
     let historyLoading = false;
@@ -26,6 +27,7 @@
         try{ if(memoryChart){ memoryChart.destroy(); memoryChart=null; } }catch(_e){}
         try{ if(diskChart){ diskChart.destroy(); diskChart=null; } }catch(_e){}
         try{ if(tempChart){ tempChart.destroy(); tempChart=null; } }catch(_e){}
+        try{ if(cpuMultiChart){ cpuMultiChart.destroy(); cpuMultiChart=null; } }catch(_e){}
     }
 
     function onEnterMonitoring() {
@@ -120,29 +122,65 @@
         setTimeout(fn, 0);
     }
 
-    // Chargement historique (évolution moyenne)
+    // Mapping métrique -> clé TS
+    function metricToTsKey(metric){
+        if(metric === 'cpu') return 'ts:cpu.usage';
+        if(metric === 'memory') return 'ts:memory.usage';
+        if(metric === 'disk') return 'ts:disk.usage';
+        if(metric === 'temperature') return 'ts:temperature';
+        return `ts:${metric}`;
+    }
+
+    // Bucket par plage (ms)
+    function pickBucketMs(hours){
+        // 1h -> 1m, 6h -> 5m, 24h -> 10m, 168h -> 60m
+        if(hours <= 1) return 60000;
+        if(hours <= 6) return 300000;
+        if(hours <= 24) return 600000;
+        return 3600000;
+    }
+
+    function getSelectedHours(metric){
+        const id = metric === 'cpu' ? 'cpu-time-range'
+            : metric === 'memory' ? 'memory-time-range'
+            : metric === 'disk' ? 'disk-time-range'
+            : 'temp-time-range';
+        const el = document.getElementById(id);
+        const v = el ? parseInt(el.value, 10) : 24;
+        return isNaN(v) ? 24 : v;
+    }
+
+    // Chargement historique via /api/ts/range
     async function fetchAndDrawHistory(metric, signal) {
-        let apiUrl = `/api/graphs/${metric}-history?hours=24&interval_minutes=10`;
+        const hours = getSelectedHours(metric);
+        const now = Date.now();
+        const frm = now - (hours * 60 * 60 * 1000);
+        const bucket = pickBucketMs(hours);
+        const key = metricToTsKey(metric);
+        const params = new URLSearchParams({
+            key,
+            frm: String(frm),
+            to: String(now),
+            agg: 'avg',
+            bucket_ms: String(bucket)
+        });
+        const apiUrl = `/api/ts/range?${params.toString()}`;
+
         let canvasId = metric+'-chart';
         let loadingId = metric+'-chart-loading';
         let yLabel = '';
-        let dataKey = '';
         switch(metric){
             case 'cpu':
                 yLabel = 'CPU (%)';
-                dataKey = 'avg_cpu';
                 break;
             case 'memory':
                 yLabel = 'Mémoire (%)';
-                dataKey = 'avg_memory';
                 break;
             case 'disk':
                 yLabel = 'Disque (%)';
-                dataKey = 'avg_disk';
                 break;
             case 'temperature':
                 yLabel = 'Température (°C)';
-                dataKey = 'avg_temperature';
                 break;
         }
         const canvas = document.getElementById(canvasId);
@@ -150,12 +188,14 @@
         if(loading) loading.style.display = '';
         if(canvas) canvas.style.display = 'none';
         try {
-            window.App.logger.debug(`[MONITORING.JS] fetch historique ${metric} depuis ${apiUrl}`);
+            window.App.logger.debug(`[MONITORING.JS] fetch TS ${metric} depuis ${apiUrl}`);
             const resp = await fetch(apiUrl, { signal });
             const json = await resp.json();
-            const history = Array.isArray(json.data) ? json.data : [];
-            const labels = history.map(pt=>pt.timestamp.slice(0,16).replace('T',' '));
-            const values = history.map(pt=>pt[dataKey] ?? null);
+            const points = Array.isArray(json.points) ? json.points : [];
+            const labels = points.map(([ts,_v])=>{
+                try{ return new Date(ts).toISOString().slice(0,16).replace('T',' ');}catch(_e){ return ''; }
+            });
+            const values = points.map(([_ts,v])=> (v === null || v === undefined) ? null : Number(v));
             if(loading) loading.style.display = 'none';
             if(canvas) canvas.style.display = '';
             let chartObj = null;
@@ -202,6 +242,120 @@
             if (e?.name === 'AbortError') return; // navigation ou annulation
             window.App.logger.error(`[MONITORING.JS] fetchAndDrawHistory error ${metric}`, e);
         }
+    }
+
+    // Handlers de sélection de période
+    window.updateCpuChart = function(){
+        const ac = new AbortController();
+        abortControllers.push(ac);
+        fetchAndDrawHistory('cpu', ac.signal).catch(()=>{});
+    }
+    window.updateMemoryChart = function(){
+        const ac = new AbortController();
+        abortControllers.push(ac);
+        fetchAndDrawHistory('memory', ac.signal).catch(()=>{});
+    }
+    window.updateDiskChart = function(){
+        const ac = new AbortController();
+        abortControllers.push(ac);
+        fetchAndDrawHistory('disk', ac.signal).catch(()=>{});
+    }
+    window.updateTempChart = function(){
+        const ac = new AbortController();
+        abortControllers.push(ac);
+        fetchAndDrawHistory('temperature', ac.signal).catch(()=>{});
+    }
+
+    // CPU multi-séries via /api/ts/mrange
+    function getSelectedHoursMulti(){
+        const el = document.getElementById('cpu-multi-time-range');
+        const v = el ? parseInt(el.value, 10) : 24;
+        return isNaN(v) ? 24 : v;
+    }
+
+    async function fetchAndDrawCpuMulti(signal){
+        const hours = getSelectedHoursMulti();
+        const now = Date.now();
+        const frm = now - (hours * 60 * 60 * 1000);
+        const bucket = pickBucketMs(hours);
+        const params = new URLSearchParams({
+            frm: String(frm),
+            to: String(now),
+            agg: 'avg',
+            bucket_ms: String(bucket)
+        });
+        // filtre principal: metric=cpu.usage (labels ajoutés côté TS)
+        // NOTE: on laisse le backend renvoyer toutes les séries (par hôte)
+        params.append('filters', 'metric=cpu.usage');
+
+        const apiUrl = `/api/ts/mrange?${params.toString()}`;
+        const canvas = document.getElementById('cpu-multi-chart');
+        const loading = document.getElementById('cpu-multi-chart-loading');
+        if(loading) loading.style.display = '';
+        if(canvas) canvas.style.display = 'none';
+        try{
+            window.App.logger.debug(`[MONITORING.JS] fetch TS MRANGE cpu depuis ${apiUrl}`);
+            const resp = await fetch(apiUrl, { signal });
+            const json = await resp.json();
+            const series = Array.isArray(json.series) ? json.series : [];
+
+            // Construire des labels communs à partir de la première série
+            let labels = [];
+            if(series.length > 0){
+                const pts0 = series[0].points || [];
+                labels = pts0.map(([ts,_])=>{
+                    try{ return new Date(ts).toISOString().slice(0,16).replace('T',' ');}catch(_e){ return ''; }
+                });
+            }
+
+            // Build datasets par série (host différent)
+            const palette = ['#fbbf24','#3b82f6','#10b981','#ef4444','#8b5cf6','#06b6d4','#f59e0b','#84cc16'];
+            const datasets = series.map((s,idx)=>{
+                const label = s.labels && s.labels.host ? s.labels.host : s.key || `serie_${idx+1}`;
+                const values = (s.points||[]).map(([_ts,v])=> (v===null||v===undefined)?null:Number(v));
+                return {
+                    label,
+                    data: values,
+                    borderColor: palette[idx % palette.length],
+                    backgroundColor: 'rgba(0,0,0,0.04)',
+                    pointRadius: 0,
+                    tension: 0.2,
+                    fill: false
+                };
+            });
+
+            if(loading) loading.style.display = 'none';
+            if(canvas) canvas.style.display = '';
+            if(!cpuMultiChart && canvas){
+                ensureCanvasFree(canvas);
+                cpuMultiChart = new Chart(canvas.getContext('2d'), {
+                    type: 'line',
+                    data: { labels, datasets },
+                    options: {
+                        responsive:true,
+                        animation:false,
+                        plugins:{ legend:{ display:true, position:'bottom' } },
+                        scales:{
+                            x:{ ticks:{ maxTicksLimit:8, autoSkip:true } },
+                            y:{ beginAtZero:true, suggestedMax: 100 }
+                        }
+                    }
+                });
+            } else if(cpuMultiChart){
+                cpuMultiChart.data.labels = labels;
+                cpuMultiChart.data.datasets = datasets;
+                cpuMultiChart.update('none');
+            }
+        }catch(e){
+            if (e?.name === 'AbortError') return;
+            window.App.logger.error('[MONITORING.JS] fetchAndDrawCpuMulti error', e);
+        }
+    }
+
+    window.updateCpuMultiChart = function(){
+        const ac = new AbortController();
+        abortControllers.push(ac);
+        fetchAndDrawCpuMulti(ac.signal).catch(()=>{});
     }
 
     function updateAlerts(alerts) {

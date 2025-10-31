@@ -5,7 +5,7 @@ Expose des lectures simples (TS.RANGE) avec support d'agrégation côté RedisTi
 
 from fastapi import APIRouter, HTTPException, Query
 
-from web.core.redis_ts import ts_range
+from web.core.redis_ts import ts_range, ts_mrange
 
 
 # Routeur dédié aux séries temporelles
@@ -37,6 +37,25 @@ async def get_ts_range(
         }
     except Exception as e:
         # On renvoie l'erreur au client, utile pour diagnostiquer clé manquante ou mauvais paramètres
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mrange")
+async def get_ts_mrange(
+    frm: int = Query(..., description="Timestamp ms début"),
+    to: int = Query(..., description="Timestamp ms fin"),
+    filters = Query(["metric=cpu.usage"], description="Filtres label=value, répétables"),
+    agg = Query(None, description="Agrégation: avg,sum,min,max,count,first,last"),
+    bucket_ms = Query(None, description="Taille de fenêtre en ms si agg"),
+):
+    """Lit plusieurs séries en une requête via des labels.
+
+    Exemple: filters=metric=cpu.usage&filters=host=node13.lan
+    """
+    try:
+        series = ts_mrange(frm, to, filters, aggregation=agg, bucket_ms=bucket_ms)
+        return {"from": frm, "to": to, "filters": filters, "aggregation": agg, "bucket_ms": bucket_ms, "series": series}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
