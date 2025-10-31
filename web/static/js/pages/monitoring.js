@@ -10,36 +10,58 @@
     let historyLoading = false;
     let historyLoaded = false;
     let historyScheduled = false;
+    let cancelled = false;
+    let abortControllers = [];
+
+    function ensureCanvasFree(canvas){
+        if(!canvas) return;
+        try{
+            const existing = Chart.getChart(canvas);
+            if(existing) existing.destroy();
+        }catch(_e){}
+    }
+
+    function cleanupCharts(){
+        try{ if(cpuChart){ cpuChart.destroy(); cpuChart=null; } }catch(_e){}
+        try{ if(memoryChart){ memoryChart.destroy(); memoryChart=null; } }catch(_e){}
+        try{ if(diskChart){ diskChart.destroy(); diskChart=null; } }catch(_e){}
+        try{ if(tempChart){ tempChart.destroy(); tempChart=null; } }catch(_e){}
+    }
 
     function onEnterMonitoring() {
         if (initialized) return;
         initialized = true;
-        console.log('[MONITORING.JS] onEnterMonitoring : listeners setup');
+        window.App.logger.debug('[MONITORING.JS] onEnterMonitoring : listeners setup');
+        cancelled = false;
 
         // 1) Écoute WS pour MAJ tuiles immédiatement (léger)
         document.addEventListener('app:cluster_metrics', (event) => {
-            console.log('[MONITORING.JS] EVENT app:cluster_metrics', event.detail);
+            window.App.logger.debug('[MONITORING.JS] EVENT app:cluster_metrics', event.detail);
             updateClusterHeader(event.detail);
             // 2) Planifier le chargement historique après le premier WS
             if(!historyLoaded && !historyLoading && !historyScheduled){
                 historyScheduled = true;
-                setTimeout(() => {
-                    startHistoryLoadSequential();
-                }, 250); // petit délai pour laisser respirer le thread UI
+                scheduleNonBlocking(() => startHistoryLoadSequential());
             }
         });
 
         document.addEventListener('app:alerts_update', (event) => {
-            console.log('[MONITORING.JS] EVENT app:alerts_update', event.detail);
+            window.App.logger.debug('[MONITORING.JS] EVENT app:alerts_update', event.detail);
             updateAlerts(event.detail);
         });
 
-        // Si on a déjà des data en cache (rare mais possible), affiche les tuiles et planifie
-        if(window.App && window.App.state.lastClusterMetrics) {
-            updateClusterHeader(window.App.state.lastClusterMetrics);
+        // Rendu immédiat depuis state ou cache
+        let firstCluster = null;
+        if (window.App && window.App.state && window.App.state.lastClusterMetrics) {
+            firstCluster = window.App.state.lastClusterMetrics;
+        } else if (window.App && window.App.cache) {
+            firstCluster = window.App.cache.load(window.App.cache.keys.cluster);
+        }
+        if(firstCluster){
+            updateClusterHeader(firstCluster);
             if(!historyLoaded && !historyLoading && !historyScheduled){
                 historyScheduled = true;
-                setTimeout(() => startHistoryLoadSequential(), 150);
+                scheduleNonBlocking(() => startHistoryLoadSequential());
             }
         }
     }
@@ -57,26 +79,49 @@
         if(avgTemp && data.cluster_stats.avg_temperature !== undefined) avgTemp.textContent = data.cluster_stats.avg_temperature.toFixed(1) + '°C';
     }
 
-    // Démarre un chargement historique SEQUENTIEL (évite 4 XHR simultanés)
-    async function startHistoryLoadSequential(){
+    // Démarre un chargement historique non-bloquant et annulable
+    function startHistoryLoadSequential(){
         historyLoading = true;
-        try{
-            const queue = ['cpu','memory','disk','temperature'];
-            for(const metric of queue){
-                await fetchAndDrawHistory(metric);
-                // petite pause pour fluidité UI
-                await new Promise(res=>setTimeout(res, 120));
-            }
-            historyLoaded = true;
-        }catch(e){
-            console.error('[MONITORING.JS] startHistoryLoadSequential error', e);
-        }finally{
-            historyLoading = false;
+        const queue = ['cpu','memory','disk','temperature'];
+        let idx = 0;
+        const step = () => {
+            if (cancelled) { finishHistory(); return; }
+            if (idx >= queue.length) { historyLoaded = true; finishHistory(); return; }
+            const metric = queue[idx++];
+            const ac = new AbortController();
+            abortControllers.push(ac);
+            fetchAndDrawHistory(metric, ac.signal)
+                .catch((e)=>{
+                    if (e?.name !== 'AbortError') window.App.logger.error('[MONITORING.JS] fetch metric error', metric, e);
+                })
+                .finally(() => {
+                    // enchaîne la prochaine étape au repos du thread
+                    scheduleNonBlocking(step);
+                });
+        };
+        scheduleNonBlocking(step);
+    }
+    function finishHistory(){
+        historyLoading = false;
+        // purge les controllers consommés
+        abortControllers = abortControllers.filter(c => !c.signal.aborted);
+    }
+    function cancelHistory(){
+        cancelled = true;
+        historyScheduled = false;
+        historyLoading = false;
+        try{ abortControllers.forEach(c=>{ try{ c.abort(); }catch(_e){} }); }catch(_e){}
+        abortControllers = [];
+    }
+    function scheduleNonBlocking(fn){
+        if (window.requestIdleCallback) {
+            try { return window.requestIdleCallback(fn, { timeout: 300 }); } catch(_e){}
         }
+        setTimeout(fn, 0);
     }
 
     // Chargement historique (évolution moyenne)
-    async function fetchAndDrawHistory(metric) {
+    async function fetchAndDrawHistory(metric, signal) {
         let apiUrl = `/api/graphs/${metric}-history?hours=24&interval_minutes=10`;
         let canvasId = metric+'-chart';
         let loadingId = metric+'-chart-loading';
@@ -105,8 +150,8 @@
         if(loading) loading.style.display = '';
         if(canvas) canvas.style.display = 'none';
         try {
-            console.log(`[MONITORING.JS] fetch historique ${metric} depuis ${apiUrl}`);
-            const resp = await fetch(apiUrl);
+            window.App.logger.debug(`[MONITORING.JS] fetch historique ${metric} depuis ${apiUrl}`);
+            const resp = await fetch(apiUrl, { signal });
             const json = await resp.json();
             const history = Array.isArray(json.data) ? json.data : [];
             const labels = history.map(pt=>pt.timestamp.slice(0,16).replace('T',' '));
@@ -119,6 +164,7 @@
             if(metric === 'disk') chartObj = diskChart;
             if(metric === 'temperature') chartObj = tempChart;
             if(!chartObj && canvas){
+                ensureCanvasFree(canvas);
                 chartObj = new Chart(canvas.getContext('2d'), {
                     type: 'line',
                     data: {
@@ -153,7 +199,8 @@
                 chartObj.update('none');
             }
         } catch(e){
-            console.error(`[MONITORING.JS] fetchAndDrawHistory error ${metric}`, e)
+            if (e?.name === 'AbortError') return; // navigation ou annulation
+            window.App.logger.error(`[MONITORING.JS] fetchAndDrawHistory error ${metric}`, e);
         }
     }
 
@@ -163,9 +210,16 @@
 
     document.addEventListener('page:enter', (event) => {
         if(event.detail.page === 'monitoring') {
-            console.log('[MONITORING.JS] page:enter monitoring!');
+            window.App.logger.debug('[MONITORING.JS] page:enter monitoring!');
             onEnterMonitoring();
             // NE PAS lancer tout de suite les XHR, on attend le premier WS puis on planifie
+        }
+    });
+    // Si on quitte la page monitoring, annule toutes les requêtes et nettoie l'état
+    document.addEventListener('page:enter', (event) => {
+        if (event.detail.page !== 'monitoring') {
+            cancelHistory();
+            cleanupCharts();
         }
     });
 

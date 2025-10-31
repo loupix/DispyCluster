@@ -8,8 +8,16 @@
     let lastChartsUpdateTs = 0;
     let mon = null;
 
+    function ensureCanvasFree(canvas){
+        if(!canvas) return;
+        try{
+            const existing = Chart.getChart(canvas);
+            if(existing) existing.destroy();
+        }catch(_e){}
+    }
+
     function updateNodesList() {
-        console.log('[NODES.JS] updateNodesList', nodes);
+        window.App.logger.debug('[NODES.JS] updateNodesList', nodes);
         const container = document.getElementById('nodes-list');
         const countElement = document.getElementById('nodes-count');
         if (!container || !countElement) return; // Sécurité DOM
@@ -62,7 +70,7 @@
     }
 
     function updateOverviewMetrics() {
-        console.log('[NODES.JS] updateOverviewMetrics');
+        window.App.logger.debug('[NODES.JS] updateOverviewMetrics');
         // Vérif DOM
         const onlineEl = document.getElementById('nodes-online');
         const avgCpuEl = document.getElementById('avg-cpu');
@@ -81,7 +89,7 @@
     }
 
     function updateCharts() {
-        console.log('[NODES.JS] updateCharts');
+        window.App.logger.debug('[NODES.JS] updateCharts');
         const cpuCanvas = document.getElementById('cpu-chart');
         const memCanvas = document.getElementById('memory-chart');
         const tempCanvas = document.getElementById('temp-chart');
@@ -101,6 +109,7 @@
             plugins: { legend: { display: false } }
         };
         if (!cpuChart) {
+            ensureCanvasFree(cpuCanvas);
             cpuChart = new Chart(cpuCanvas.getContext('2d'), {
                 type: 'bar',
                 data: { labels, datasets: [{ label: 'CPU', data: cpuData, backgroundColor: 'rgba(251,191,36,0.8)' }] },
@@ -112,6 +121,7 @@
             cpuChart.update('none');
         }
         if (!memoryChart) {
+            ensureCanvasFree(memCanvas);
             memoryChart = new Chart(memCanvas.getContext('2d'), {
                 type: 'bar',
                 data: { labels, datasets: [{ label: 'Mémoire', data: memData, backgroundColor: 'rgba(147,51,234,0.8)' }] },
@@ -123,6 +133,7 @@
             memoryChart.update('none');
         }
         if (!tempChart) {
+            ensureCanvasFree(tempCanvas);
             tempChart = new Chart(tempCanvas.getContext('2d'), {
                 type: 'bar',
                 data: { labels, datasets: [{ label: 'Température', data: tempData, backgroundColor: 'rgba(239,68,68,0.8)' }] },
@@ -144,26 +155,34 @@
     function onNodesPage() {
         if (initialized) return;
         initialized = true;
-        console.log('[NODES.JS] onNodesPage - listeners WS branchés');
+        window.App.logger.debug('[NODES.JS] onNodesPage - listeners WS branchés');
         // Branche le WS seulement ici (évite les fuites listeners et multiples WS)
         mon = window.App && window.App.sockets && window.App.sockets.monitoring
             ? window.App.sockets.monitoring
             : io('/monitoring');
         mon.on('cluster_metrics', handleClusterMetrics);
         mon.on('connect', () => {
-            console.log('[NODES.JS] SOCKET MONITORING CONNECTED');
+            window.App.logger.debug('[NODES.JS] SOCKET MONITORING CONNECTED');
             mon.emit('request_nodes_status', {});
         });
         // Pour éviter des soucis lors du retour, gère une cleanup si tu veux (à voir sur page:leave)
         // Ecoute update globale cluster_metrics côté app.js aussi
         document.addEventListener('app:cluster_metrics', (evt) => {
-            console.log('[NODES.JS] EVENT app:cluster_metrics', evt.detail);
+            window.App.logger.debug('[NODES.JS] EVENT app:cluster_metrics', evt.detail);
             handleClusterMetrics(evt.detail);
         });
+
+        // Rendu immédiat depuis cache/state sans attendre le prochain WS
+        const immediate = (window.App && window.App.state && window.App.state.lastClusterMetrics)
+            || (window.App && window.App.cache && window.App.cache.load(window.App.cache.keys.cluster));
+        if (immediate) {
+            window.App.logger.debug('[NODES.JS] FIRST DATA IMMEDIATE');
+            handleClusterMetrics(immediate);
+        }
     }
     
     function handleClusterMetrics(data) {
-        console.log('[NODES.JS] handleClusterMetrics', data);
+        window.App.logger.debug('[NODES.JS] handleClusterMetrics', data);
         const mapped = data && data.nodes ? Object.entries(data.nodes).map(([node, metrics]) => ({
             node,
             cpu_usage: metrics.cpu_usage || 0,
@@ -181,8 +200,14 @@
 
     document.addEventListener('page:enter', (event) => {
         if (event.detail.page === 'nodes') {
-            console.log('[NODES.JS] page:enter nodes!');
+            window.App.logger.debug('[NODES.JS] page:enter nodes!');
             onNodesPage();
+        }
+    });
+    // Nettoyage lors d'un changement de page (si on quitte nodes)
+    document.addEventListener('page:enter', (event) => {
+        if (event.detail.page !== 'nodes') {
+            cleanupCharts();
         }
     });
     if (window.location.pathname === '/nodes') {

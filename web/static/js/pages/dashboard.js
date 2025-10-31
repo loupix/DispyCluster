@@ -3,7 +3,7 @@
     let initialized = false;
 
     function updateFromOverview(overview) {
-        console.log('[DASHBOARD.JS] updateFromOverview', overview);
+        window.App.logger.debug('[DASHBOARD.JS] updateFromOverview', overview);
         if (!overview) return;
         const nodesOnline = document.getElementById('nodes-online');
         const nodesTotal = document.getElementById('nodes-total');
@@ -15,7 +15,7 @@
         if (avgMem && overview.cluster_stats?.avg_memory !== undefined) avgMem.textContent = overview.cluster_stats.avg_memory.toFixed(1) + '%';
     }
     function updateNodesList(overview) {
-        console.log('[DASHBOARD.JS] updateNodesList', overview);
+        window.App.logger.debug('[DASHBOARD.JS] updateNodesList', overview);
         const container = document.getElementById('nodes-list');
         if (!container) return;
         let nodes = [];
@@ -51,7 +51,7 @@
         updateTops(nodes);
     }
     function updateTops(nodes) {
-        console.log('[DASHBOARD.JS] updateTops', nodes);
+        window.App.logger.debug('[DASHBOARD.JS] updateTops', nodes);
         const topCpu = [...nodes].sort((a,b) => (b.cpu_usage||0) - (a.cpu_usage||0)).slice(0,3);
         const topCpuEl = document.getElementById('top-cpu');
         if (topCpuEl) topCpuEl.innerHTML = topCpu.length ? topCpu.map(n => `
@@ -94,7 +94,7 @@
             </div>`).join('') : '<p class="text-gray-500 text-center py-4">Aucune donnée</p>';
     }
     function updateAlerts(alerts) {
-        console.log('[DASHBOARD.JS] updateAlerts', alerts);
+        window.App.logger.debug('[DASHBOARD.JS] updateAlerts', alerts);
         const card = document.getElementById('alerts-card');
         const container = document.getElementById('alerts-content');
         if (!card || !container) return;
@@ -114,28 +114,41 @@
     function onEnterDashboard() {
         if (initialized) return;
         initialized = true;
-        console.log('[DASHBOARD.JS] onEnterDashboard : listeners setup');
+        window.App.logger.debug('[DASHBOARD.JS] onEnterDashboard : listeners setup');
         document.addEventListener('app:cluster_metrics', (event) => {
-            console.log('[DASHBOARD.JS] EVENT app:cluster_metrics', event.detail);
+            window.App.logger.debug('[DASHBOARD.JS] EVENT app:cluster_metrics', event.detail);
             updateFromOverview(event.detail);
             updateNodesList(event.detail);
         });
         document.addEventListener('app:alerts_update', (event) => {
-            console.log('[DASHBOARD.JS] EVENT app:alerts_update', event.detail);
+            window.App.logger.debug('[DASHBOARD.JS] EVENT app:alerts_update', event.detail);
             updateAlerts(event.detail);
         });
-        // Afficher direct les dernières valeurs si dispo
-        if(window.App && window.App.state.lastClusterMetrics) {
-            console.log('[DASHBOARD.JS] FIRST DATA IMMEDIATE', window.App.state.lastClusterMetrics);
-            updateFromOverview(window.App.state.lastClusterMetrics);
-            updateNodesList(window.App.state.lastClusterMetrics);
+        // Afficher direct les dernières valeurs si dispo (state ou cache)
+        let firstCluster = null;
+        if (window.App && window.App.state && window.App.state.lastClusterMetrics) {
+            firstCluster = window.App.state.lastClusterMetrics;
+        } else if (window.App && window.App.cache) {
+            firstCluster = window.App.cache.load(window.App.cache.keys.cluster);
         }
-        if(window.App && window.App.state.lastAlerts)
-            updateAlerts(window.App.state.lastAlerts);
+        if(firstCluster){
+            window.App.logger.debug('[DASHBOARD.JS] FIRST DATA IMMEDIATE', firstCluster);
+            updateFromOverview(firstCluster);
+            updateNodesList(firstCluster);
+        }
+        let firstAlerts = null;
+        if (window.App && window.App.state && window.App.state.lastAlerts) {
+            firstAlerts = window.App.state.lastAlerts;
+        } else if (window.App && window.App.cache) {
+            firstAlerts = window.App.cache.load(window.App.cache.keys.alerts);
+        }
+        if(firstAlerts){
+            updateAlerts(firstAlerts);
+        }
     }
     document.addEventListener('page:enter', (event) => {
         if(event.detail.page === 'dashboard') {
-            console.log('[DASHBOARD.JS] page:enter dashboard!');
+            window.App.logger.debug('[DASHBOARD.JS] page:enter dashboard!');
             onEnterDashboard();
         }
     });
