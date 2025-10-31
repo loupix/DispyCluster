@@ -9,6 +9,9 @@ from web.config.metrics_config import REDIS_CONFIG
 # Objectif: garder un code lisible et réutilisable pour produire/consommer
 # des métriques et lire des séries temporelles.
 
+# Cache de disponibilité du module RedisTimeSeries
+_TS_AVAILABLE = None
+
 
 def get_redis_client():
     """Client Redis configuré depuis REDIS_CONFIG.
@@ -21,6 +24,26 @@ def get_redis_client():
         db=REDIS_CONFIG["db"],
         decode_responses=REDIS_CONFIG.get("decode_responses", True),
     )
+
+
+def has_timeseries():
+    """Retourne True si le module RedisTimeSeries est disponible."""
+    global _TS_AVAILABLE
+    if _TS_AVAILABLE is not None:
+        return _TS_AVAILABLE
+    try:
+        client = get_redis_client()
+        modules = client.execute_command("MODULE", "LIST")
+        found = False
+        for mod in modules:
+            if "timeseries" in str(mod).lower():
+                found = True
+                break
+        _TS_AVAILABLE = found
+        return found
+    except Exception:
+        _TS_AVAILABLE = False
+        return False
 
 
 def ts_create(
@@ -51,6 +74,8 @@ def ts_create(
             args.extend([k, v])
 
     try:
+        if not has_timeseries():
+            return False
         client.execute_command(*args)
         return True
     except redis.ResponseError as e:
@@ -75,6 +100,8 @@ def ts_add(
     client = get_redis_client()
     ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
     try:
+        if not has_timeseries():
+            return ts
         added_ts = client.execute_command("TS.ADD", key, ts, value)
         return int(added_ts)
     except redis.ResponseError as e:
@@ -92,6 +119,8 @@ def ts_create_rule(src, dest, aggregation, bucket_ms):
     Exemple: avg 60000 pour moyenne par minute.
     La série dest doit exister.
     """
+    if not has_timeseries():
+        return
     client = get_redis_client()
     client.execute_command(
         "TS.CREATERULE", src, dest, "AGGREGATION", aggregation, bucket_ms
@@ -158,7 +187,15 @@ def ts_range(
     args = ["TS.RANGE", key, from_ts, to_ts]
     if aggregation and bucket_ms:
         args.extend(["AGGREGATION", aggregation, bucket_ms])
-    data = client.execute_command(*args)
+    try:
+        if not has_timeseries():
+            return []
+        data = client.execute_command(*args)
+    except redis.ResponseError as e:
+        # Série absente: on renvoie une liste vide au lieu d'une 500
+        if "TSDB" in str(e):
+            return []
+        raise
     # data is list of [timestamp, value]
     return [(int(ts), float(val)) for ts, val in data]
 
@@ -176,6 +213,8 @@ def ts_mrange(
     - aggregation/bucket_ms optionnels.
     Retourne une liste d'objets: {key, labels, points}.
     """
+    if not has_timeseries():
+        return []
     client = get_redis_client()
     args = ["TS.MRANGE", from_ts, to_ts]
     if aggregation and bucket_ms:

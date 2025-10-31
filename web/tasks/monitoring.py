@@ -8,6 +8,7 @@ from typing import Dict, List, Any
 from web.config.metrics_config import NODES, REDIS_CONFIG, METRICS_CONFIG
 from web.config.logging_config import get_logger
 from web.core.metrics_history import history_manager
+from web.core.redis_ts import xadd, ts_add
 
 # Configuration du logger
 logger = get_logger(__name__)
@@ -67,6 +68,26 @@ async def _collect_metrics_async():
                 
                 # Stocker dans l'historique
                 history_manager.store_metrics_point(node, result["metrics"])
+
+                # Publier dans Redis Streams pour ingestion TimeSeries
+                try:
+                    metrics = result["metrics"]
+                    labels = {"host": node}
+                    if "cpu_usage" in metrics:
+                        xadd("metrics:ingest", {"metric": "cpu.usage", "value": str(metrics["cpu_usage"]), "labels": json.dumps(labels)}, maxlen_approx=200000)
+                        # Ecriture directe TS (en parallèle du Stream)
+                        ts_add("ts:cpu.usage", float(metrics["cpu_usage"]), labels_if_create={"metric": "cpu.usage", "host": node})
+                    if "memory_usage" in metrics:
+                        xadd("metrics:ingest", {"metric": "memory.usage", "value": str(metrics["memory_usage"]), "labels": json.dumps(labels)}, maxlen_approx=200000)
+                        ts_add("ts:memory.usage", float(metrics["memory_usage"]), labels_if_create={"metric": "memory.usage", "host": node})
+                    if "disk_usage" in metrics:
+                        xadd("metrics:ingest", {"metric": "disk.usage", "value": str(metrics["disk_usage"]), "labels": json.dumps(labels)}, maxlen_approx=200000)
+                        ts_add("ts:disk.usage", float(metrics["disk_usage"]), labels_if_create={"metric": "disk.usage", "host": node})
+                    if "temperature" in metrics and metrics["temperature"]:
+                        xadd("metrics:ingest", {"metric": "temperature", "value": str(metrics["temperature"]), "labels": json.dumps(labels)}, maxlen_approx=200000)
+                        ts_add("ts:temperature", float(metrics["temperature"]), labels_if_create={"metric": "temperature", "host": node})
+                except Exception as stream_err:
+                    logger.warning(f"Publication Streams métriques échouée pour {node}: {stream_err}")
                 
                 results["nodes_processed"] += 1
         

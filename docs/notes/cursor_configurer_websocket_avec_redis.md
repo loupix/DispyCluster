@@ -1,5 +1,5 @@
 # Configurer websocket avec redis pub/sub
-_Exported on 10/30/2025 at 17:13:04 GMT+1 from Cursor (1.7.46)_
+_Exported on 10/31/2025 at 00:46:23 GMT+1 from Cursor (1.7.46)_
 
 ---
 
@@ -32907,4 +32907,1772 @@ Teste la page Monitoring: ça doit être nettement plus fluide. Tu veux que j’
 **User**
 
 ok, commit & tag
+
+---
+
+**Cursor**
+
+Je commit et je tag la version. J’exécute les commandes git maintenant.
+
+C’est poussé et taggé.
+
+- Commit créé sur `feature/websocket-support`
+- Tag `v0.7` poussé sur `origin`
+
+Tu peux récupérer avec:
+- git fetch --all
+- git checkout feature/websocket-support
+- git checkout v0.7
+
+Dis-moi si tu veux faire un merge vers `main` ou créer une release GitHub.
+
+---
+
+**User**
+
+peut on mettre un cache global qui stock les données de websocket, qu'on puisse les relires dans d'autres pages ?
+ainsi plus besoin d'attendre.
+
+---
+
+**Cursor**
+
+```javascript
+console.log('[App.js] INIT App');
+// Cache persistant localStorage (pour éviter l'attente au premier rendu)
+const CACHE_KEYS = {
+    cluster: 'dc:lastClusterMetrics',
+    health: 'dc:lastHealth',
+    alerts: 'dc:lastAlerts'
+};
+const CACHE_TTL_MS = 60000; // 60s : assez frais pour le premier rendu
+function saveCache(key, payload){
+    try{
+        localStorage.setItem(key, JSON.stringify({ t: Date.now(), v: payload }));
+    }catch(_e){/* ignore */}
+}
+function loadCache(key){
+    try{
+        const raw = localStorage.getItem(key);
+        if(!raw) return null;
+        const obj = JSON.parse(raw);
+        if(!obj || typeof obj.t !== 'number') return null;
+        if(Date.now() - obj.t > CACHE_TTL_MS) return null;
+        return obj.v;
+    }catch(_e){ return null; }
+}
+
+// App global singleton: sockets + state partagé
+window.App = window.App || {
+    state: {
+        lastClusterMetrics: null,
+        lastHealth: null,
+        lastAlerts: null,
+    },
+    sockets: {
+        root: null,
+        monitoring: null,
+        health: null,
+    },
+    initSockets() {
+        try {
+            // 0) Hydrate depuis cache pour affichage immédiat
+            if (!this.state.lastClusterMetrics) {
+                const cached = loadCache(CACHE_KEYS.cluster);
+                if (cached) {
+                    this.state.lastClusterMetrics = cached;
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: cached }));
+                }
+            }
+            if (!this.state.lastHealth) {
+                const cachedH = loadCache(CACHE_KEYS.health);
+                if (cachedH) {
+                    this.state.lastHealth = cachedH;
+                    document.dispatchEvent(new CustomEvent('app:health_update', { detail: cachedH }));
+                }
+            }
+            if (!this.state.lastAlerts) {
+                const cachedA = loadCache(CACHE_KEYS.alerts);
+                if (cachedA) {
+                    this.state.lastAlerts = cachedA;
+                    document.dispatchEvent(new CustomEvent('app:alerts_update', { detail: cachedA }));
+                }
+            }
+
+            if (!this.sockets.root) {
+                this.sockets.root = io({
+                    transports: ['websocket', 'polling'],
+                    reconnection: true,
+                    reconnectionDelay: 1000,
+                    reconnectionDelayMax: 5000,
+                    reconnectionAttempts: Infinity
+                });
+                this.sockets.root.on('connect', () => console.log('[App.js] SOCKET ROOT CONNECT'));
+                this.sockets.root.on('redis_cluster_metrics', (data) => {
+                    console.log('[App.js] EVENT redis_cluster_metrics RECU', data);
+                    this.state.lastClusterMetrics = data;
+                    saveCache(CACHE_KEYS.cluster, data);
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: data }));
+                });
+                this.sockets.root.on('cluster_metrics', (data) => {
+                    console.log('[App.js] EVENT cluster_metrics RECU', data);
+                    this.state.lastClusterMetrics = data;
+                    saveCache(CACHE_KEYS.cluster, data);
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: data }));
+                });
+            }
+            if (!this.sockets.monitoring) {
+                this.sockets.monitoring = io('/monitoring');
+                this.sockets.monitoring.on('connect', () => console.log('[App.js] SOCKET MONITORING CONNECT'));
+                this.sockets.monitoring.on('cluster_metrics', (data) => {
+                    console.log('[App.js] EVENT cluster_metrics (monitoring) RECU', data);
+                    this.state.lastClusterMetrics = data;
+                    saveCache(CACHE_KEYS.cluster, data);
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: data }));
+                });
+                this.sockets.monitoring.on('alerts_update', (data) => {
+                    console.log('[App.js] EVENT alerts_update (monitoring) RECU', data);
+                    this.state.lastAlerts = data;
+                    saveCache(CACHE_KEYS.alerts, data);
+                    document.dispatchEvent(new CustomEvent('app:alerts_update', { detail: data }));
+                });
+            }
+            if (!this.sockets.health) {
+                this.sockets.health = io('/health');
+                this.sockets.health.on('connect', () => console.log('[App.js] SOCKET HEALTH CONNECT'));
+                this.sockets.health.on('health_update', (data) => {
+                    console.log('[App.js] EVENT health_update RECU', data);
+                    this.state.lastHealth = data;
+                    saveCache(CACHE_KEYS.health, data);
+                    document.dispatchEvent(new CustomEvent('app:health_update', { detail: data }));
+                });
+            }
+        } catch (e) {
+            console.error('[App.js] Init sockets error', e);
+        }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('[App.js] DOMContentLoaded => initSockets');
+    window.App.initSockets();
+});
+```
+
+Oui, je l’ai ajouté.
+
+- Cache global persistant côté front via localStorage.
+- À chaque event WS reçu, on sauvegarde et on rediffuse.
+- Au chargement, on recharge le cache si c’est frais (TTL 60s) et on rediffuse tout de suite, donc affichage instantané sur toutes les pages sans attendre.
+
+Tu peux ajuster le TTL si tu veux plus long/court.
+
+---
+
+**User**
+
+app.js:1 Uncaught SyntaxError: Identifier 'CACHE_KEYS' has already been declared (at app.js:1:1)
+
+De plus, il y a un leger chargement des données quand je change de pages, au lieu d'utiliser le cache.
+modifie les pages js.
+
+---
+
+**Cursor**
+
+Je vais corriger le conflit de déclaration dans `app.js` en encapsulant le cache dans `window.App` et en évitant toute redéclaration si le script est chargé deux fois. Ensuite, j’ajoute dans les pages (`dashboard.js`, `nodes.js`, `monitoring.js`) un rendu immédiat depuis le cache pour éviter le petit délai à la navigation. Je commence par lire les fichiers pour ajuster proprement.
+
+```javascript
+console.log('[App.js] INIT App');
+// Espace global App et cache persistant encapsulé (évite redéclarations)
+window.App = window.App || {};
+window.App.cache = window.App.cache || (function(){
+    const keys = {
+        cluster: 'dc:lastClusterMetrics',
+        health: 'dc:lastHealth',
+        alerts: 'dc:lastAlerts'
+    };
+    const TTL = 60000; // 60s : assez frais pour le premier rendu
+    function save(key, payload){
+        try{ localStorage.setItem(key, JSON.stringify({ t: Date.now(), v: payload })); }catch(_e){}
+    }
+    function load(key){
+        try{
+            const raw = localStorage.getItem(key);
+            if(!raw) return null;
+            const obj = JSON.parse(raw);
+            if(!obj || typeof obj.t !== 'number') return null;
+            if(Date.now() - obj.t > TTL) return null;
+            return obj.v;
+        }catch(_e){ return null; }
+    }
+    return { keys, TTL, save, load };
+})();
+
+// App global singleton: sockets + state partagé
+window.App = window.App || {
+    state: {
+        lastClusterMetrics: null,
+        lastHealth: null,
+        lastAlerts: null,
+    },
+    sockets: {
+        root: null,
+        monitoring: null,
+        health: null,
+    },
+    initSockets() {
+        try {
+            // 0) Hydrate depuis cache pour affichage immédiat
+            if (!this.state.lastClusterMetrics) {
+                const cached = window.App.cache.load(window.App.cache.keys.cluster);
+                if (cached) {
+                    this.state.lastClusterMetrics = cached;
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: cached }));
+                }
+            }
+            if (!this.state.lastHealth) {
+                const cachedH = window.App.cache.load(window.App.cache.keys.health);
+                if (cachedH) {
+                    this.state.lastHealth = cachedH;
+                    document.dispatchEvent(new CustomEvent('app:health_update', { detail: cachedH }));
+                }
+            }
+            if (!this.state.lastAlerts) {
+                const cachedA = window.App.cache.load(window.App.cache.keys.alerts);
+                if (cachedA) {
+                    this.state.lastAlerts = cachedA;
+                    document.dispatchEvent(new CustomEvent('app:alerts_update', { detail: cachedA }));
+                }
+            }
+
+            if (!this.sockets.root) {
+                this.sockets.root = io({
+                    transports: ['websocket', 'polling'],
+                    reconnection: true,
+                    reconnectionDelay: 1000,
+                    reconnectionDelayMax: 5000,
+                    reconnectionAttempts: Infinity
+                });
+                this.sockets.root.on('connect', () => console.log('[App.js] SOCKET ROOT CONNECT'));
+                this.sockets.root.on('redis_cluster_metrics', (data) => {
+                    console.log('[App.js] EVENT redis_cluster_metrics RECU', data);
+                    this.state.lastClusterMetrics = data;
+                    window.App.cache.save(window.App.cache.keys.cluster, data);
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: data }));
+                });
+                this.sockets.root.on('cluster_metrics', (data) => {
+                    console.log('[App.js] EVENT cluster_metrics RECU', data);
+                    this.state.lastClusterMetrics = data;
+                    window.App.cache.save(window.App.cache.keys.cluster, data);
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: data }));
+                });
+            }
+            if (!this.sockets.monitoring) {
+                this.sockets.monitoring = io('/monitoring');
+                this.sockets.monitoring.on('connect', () => console.log('[App.js] SOCKET MONITORING CONNECT'));
+                this.sockets.monitoring.on('cluster_metrics', (data) => {
+                    console.log('[App.js] EVENT cluster_metrics (monitoring) RECU', data);
+                    this.state.lastClusterMetrics = data;
+                    window.App.cache.save(window.App.cache.keys.cluster, data);
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: data }));
+                });
+                this.sockets.monitoring.on('alerts_update', (data) => {
+                    console.log('[App.js] EVENT alerts_update (monitoring) RECU', data);
+                    this.state.lastAlerts = data;
+                    window.App.cache.save(window.App.cache.keys.alerts, data);
+                    document.dispatchEvent(new CustomEvent('app:alerts_update', { detail: data }));
+                });
+            }
+            if (!this.sockets.health) {
+                this.sockets.health = io('/health');
+                this.sockets.health.on('connect', () => console.log('[App.js] SOCKET HEALTH CONNECT'));
+                this.sockets.health.on('health_update', (data) => {
+                    console.log('[App.js] EVENT health_update RECU', data);
+                    this.state.lastHealth = data;
+                    window.App.cache.save(window.App.cache.keys.health, data);
+                    document.dispatchEvent(new CustomEvent('app:health_update', { detail: data }));
+                });
+            }
+        } catch (e) {
+            console.error('[App.js] Init sockets error', e);
+        }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('[App.js] DOMContentLoaded => initSockets');
+    window.App.initSockets();
+});
+```
+
+```javascript
+// nodes.js
+(function() {
+    let initialized = false;
+    let nodes = [];
+    let cpuChart = null;
+    let memoryChart = null;
+    let tempChart = null;
+    let lastChartsUpdateTs = 0;
+    let mon = null;
+
+    function updateNodesList() {
+        console.log('[NODES.JS] updateNodesList', nodes);
+        const container = document.getElementById('nodes-list');
+        const countElement = document.getElementById('nodes-count');
+        if (!container || !countElement) return; // Sécurité DOM
+        countElement.textContent = `${nodes.length} nœud${nodes.length > 1 ? 's' : ''}`;
+        if (nodes.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-12 col-span-full">
+                    <i class="fas fa-server text-gray-300 text-4xl mb-4"></i>
+                    <p class="text-gray-500">Aucun nœud disponible</p>
+                </div>
+            `;
+            return;
+        }
+        container.innerHTML = nodes.map(node => {
+            const cpu = Number(node.cpu_usage || 0);
+            const mem = Number(node.memory_usage || 0);
+            const temp = Number(node.temperature || 0);
+            const disk = Number(node.disk_usage || 0);
+            const up = (node.status === 'ready' || node.is_healthy);
+            return `
+            <div class="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-3 h-3 rounded-full ${up ? 'bg-green-500' : 'bg-red-500'}"></div>
+                        <h3 class="text-lg font-semibold text-gray-900">${node.node}</h3>
+                        <span class="px-2 py-1 rounded-full text-xs font-medium ${up ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${up ? 'En ligne' : 'Hors ligne'}</span>
+                    </div>
+                    <div class="text-sm text-gray-500">MAJ: ${new Date().toLocaleTimeString()}</div>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>CPU</span><span>${cpu.toFixed(1)}%</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${cpu<60?'bg-yellow-400':cpu<85?'bg-orange-500':'bg-red-600'}" style="width:${Math.min(cpu,100)}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>Mémoire</span><span>${mem.toFixed(1)}%</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${mem<60?'bg-purple-500':mem<85?'bg-purple-600':'bg-purple-800'}" style="width:${Math.min(mem,100)}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>Disque</span><span>${disk.toFixed(1)}%</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${disk<70?'bg-blue-500':disk<90?'bg-blue-600':'bg-blue-800'}" style="width:${Math.min(disk,100)}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>Température</span><span>${temp.toFixed(1)}°C</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${temp<55?'bg-green-500':temp<70?'bg-yellow-500':'bg-red-600'}" style="width:${Math.min(temp,100)}%"></div></div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function updateOverviewMetrics() {
+        console.log('[NODES.JS] updateOverviewMetrics');
+        // Vérif DOM
+        const onlineEl = document.getElementById('nodes-online');
+        const avgCpuEl = document.getElementById('avg-cpu');
+        const avgMemEl = document.getElementById('avg-memory');
+        const avgTempEl = document.getElementById('avg-temp');
+        if (!onlineEl || !avgCpuEl || !avgMemEl || !avgTempEl) return;
+        const online = nodes.filter(n => (n.status === 'ready' || n.is_healthy));
+        const avg = (arr) => arr.length ? (arr.reduce((a,b)=>a+b,0) / arr.length) : 0;
+        const avgCpu = avg(online.map(n => n.cpu_usage || 0));
+        const avgMem = avg(online.map(n => n.memory_usage || 0));
+        const avgTemp = avg(online.map(n => n.temperature || 0));
+        onlineEl.textContent = online.length.toString();
+        avgCpuEl.textContent = avgCpu ? `${avgCpu.toFixed(1)}%` : '-';
+        avgMemEl.textContent = avgMem ? `${avgMem.toFixed(1)}%` : '-';
+        avgTempEl.textContent = avgTemp ? `${avgTemp.toFixed(1)}°C` : '-';
+    }
+
+    function updateCharts() {
+        console.log('[NODES.JS] updateCharts');
+        const cpuCanvas = document.getElementById('cpu-chart');
+        const memCanvas = document.getElementById('memory-chart');
+        const tempCanvas = document.getElementById('temp-chart');
+        if (!cpuCanvas || !memCanvas || !tempCanvas) return;
+        const now = Date.now();
+        if (now - lastChartsUpdateTs < 1200) return;
+        lastChartsUpdateTs = now;
+        const onlineNodes = nodes.filter(n => (n.status === 'ready' || n.is_healthy));
+        const labels = onlineNodes.map(n => n.node);
+        const cpuData = onlineNodes.map(n => n.cpu_usage || 0);
+        const memData = onlineNodes.map(n => n.memory_usage || 0);
+        const tempData = onlineNodes.map(n => n.temperature || 0);
+        const commonOptions = {
+            responsive: true,
+            animation: { duration: 0 },
+            scales: { y: { beginAtZero: true, suggestedMax: 100 } },
+            plugins: { legend: { display: false } }
+        };
+        if (!cpuChart) {
+            cpuChart = new Chart(cpuCanvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'CPU', data: cpuData, backgroundColor: 'rgba(251,191,36,0.8)' }] },
+                options: commonOptions
+            });
+        } else {
+            cpuChart.data.labels = labels;
+            cpuChart.data.datasets[0].data = cpuData;
+            cpuChart.update('none');
+        }
+        if (!memoryChart) {
+            memoryChart = new Chart(memCanvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Mémoire', data: memData, backgroundColor: 'rgba(147,51,234,0.8)' }] },
+                options: commonOptions
+            });
+        } else {
+            memoryChart.data.labels = labels;
+            memoryChart.data.datasets[0].data = memData;
+            memoryChart.update('none');
+        }
+        if (!tempChart) {
+            tempChart = new Chart(tempCanvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Température', data: tempData, backgroundColor: 'rgba(239,68,68,0.8)' }] },
+                options: {...commonOptions, scales: { y: { beginAtZero: true } } }
+            });
+        } else {
+            tempChart.data.labels = labels;
+            tempChart.data.datasets[0].data = tempData;
+            tempChart.update('none');
+        }
+    }
+
+    function cleanupCharts() {
+        if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
+        if (memoryChart) { memoryChart.destroy(); memoryChart = null; }
+        if (tempChart) { tempChart.destroy(); tempChart = null; }
+    }
+
+    function onNodesPage() {
+        if (initialized) return;
+        initialized = true;
+        console.log('[NODES.JS] onNodesPage - listeners WS branchés');
+        // Branche le WS seulement ici (évite les fuites listeners et multiples WS)
+        mon = window.App && window.App.sockets && window.App.sockets.monitoring
+            ? window.App.sockets.monitoring
+            : io('/monitoring');
+        mon.on('cluster_metrics', handleClusterMetrics);
+        mon.on('connect', () => {
+            console.log('[NODES.JS] SOCKET MONITORING CONNECTED');
+            mon.emit('request_nodes_status', {});
+        });
+        // Pour éviter des soucis lors du retour, gère une cleanup si tu veux (à voir sur page:leave)
+        // Ecoute update globale cluster_metrics côté app.js aussi
+        document.addEventListener('app:cluster_metrics', (evt) => {
+            console.log('[NODES.JS] EVENT app:cluster_metrics', evt.detail);
+            handleClusterMetrics(evt.detail);
+        });
+
+        // Rendu immédiat depuis cache/state sans attendre le prochain WS
+        const immediate = (window.App && window.App.state && window.App.state.lastClusterMetrics)
+            || (window.App && window.App.cache && window.App.cache.load(window.App.cache.keys.cluster));
+        if (immediate) {
+            console.log('[NODES.JS] FIRST DATA IMMEDIATE');
+            handleClusterMetrics(immediate);
+        }
+    }
+    
+    function handleClusterMetrics(data) {
+        console.log('[NODES.JS] handleClusterMetrics', data);
+        const mapped = data && data.nodes ? Object.entries(data.nodes).map(([node, metrics]) => ({
+            node,
+            cpu_usage: metrics.cpu_usage || 0,
+            memory_usage: metrics.memory_usage || 0,
+            disk_usage: (metrics.disk_usage !== undefined) ? metrics.disk_usage : (metrics.disk_total ? (100 - (100 * (metrics.disk_available || 0) / metrics.disk_total)) : 0),
+            temperature: metrics.temperature || 0,
+            is_healthy: metrics.is_healthy,
+            status: (metrics.cpu_usage || 0) > 0 ? 'ready' : 'unknown'
+        })) : [];
+        nodes = mapped;
+        updateNodesList();
+        updateOverviewMetrics();
+        updateCharts();
+    }
+
+    document.addEventListener('page:enter', (event) => {
+        if (event.detail.page === 'nodes') {
+            console.log('[NODES.JS] page:enter nodes!');
+            onNodesPage();
+        }
+    });
+    if (window.location.pathname === '/nodes') {
+        document.dispatchEvent(new CustomEvent('page:enter', { detail: { page: 'nodes', path: window.location.pathname } }));
+    }
+    // Tu pourrais envisager un page:leave pour destroy les charts si besoin.
+})();
+
+```
+
+```javascript
+// dashboard.js
+(function() {
+    let initialized = false;
+
+    function updateFromOverview(overview) {
+        console.log('[DASHBOARD.JS] updateFromOverview', overview);
+        if (!overview) return;
+        const nodesOnline = document.getElementById('nodes-online');
+        const nodesTotal = document.getElementById('nodes-total');
+        const avgCpu = document.getElementById('avg-cpu');
+        const avgMem = document.getElementById('avg-memory');
+        if (nodesOnline && overview.cluster_stats?.online_nodes !== undefined) nodesOnline.textContent = overview.cluster_stats.online_nodes;
+        if (nodesTotal && overview.cluster_stats?.total_nodes !== undefined) nodesTotal.textContent = overview.cluster_stats.total_nodes;
+        if (avgCpu && overview.cluster_stats?.avg_cpu !== undefined) avgCpu.textContent = overview.cluster_stats.avg_cpu.toFixed(1) + '%';
+        if (avgMem && overview.cluster_stats?.avg_memory !== undefined) avgMem.textContent = overview.cluster_stats.avg_memory.toFixed(1) + '%';
+    }
+    function updateNodesList(overview) {
+        console.log('[DASHBOARD.JS] updateNodesList', overview);
+        const container = document.getElementById('nodes-list');
+        if (!container) return;
+        let nodes = [];
+        if (overview && overview.nodes) {
+            nodes = Object.entries(overview.nodes).map(([node, metrics]) => ({
+                node,
+                cpu_usage: metrics.cpu_usage || 0,
+                memory_usage: metrics.memory_usage || 0,
+                status: (metrics.cpu_usage || 0) > 0 ? 'ready' : 'unknown',
+                temperature: metrics.temperature || null,
+            }));
+        }
+        if (nodes.length === 0) {
+            container.innerHTML = '<p class="text-gray-500 text-center py-4">Aucun nœud disponible</p>';
+            return;
+        }
+        container.innerHTML = nodes.slice(0, 5).map(node => `
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2">
+                <div class="flex items-center">
+                    <i class="fas fa-server text-gray-400 mr-3"></i>
+                    <div>
+                        <div class="font-medium">${node.node}</div>
+                        <div class="text-sm text-gray-500">
+                            CPU: ${node.cpu_usage?.toFixed(1) || 0}% | RAM: ${node.memory_usage?.toFixed(1) || 0}%
+                        </div>
+                    </div>
+                </div>
+                <span class="px-2 py-1 rounded-full text-xs font-medium ${
+                    (node.status === 'ready') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                }">${(node.status === 'ready') ? 'En ligne' : 'Hors ligne'}</span>
+            </div>
+        `).join('');
+        updateTops(nodes);
+    }
+    function updateTops(nodes) {
+        console.log('[DASHBOARD.JS] updateTops', nodes);
+        const topCpu = [...nodes].sort((a,b) => (b.cpu_usage||0) - (a.cpu_usage||0)).slice(0,3);
+        const topCpuEl = document.getElementById('top-cpu');
+        if (topCpuEl) topCpuEl.innerHTML = topCpu.length ? topCpu.map(n => `
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2">
+                <div class="flex items-center">
+                    <i class="fas fa-microchip text-yellow-500 mr-3"></i>
+                    <div>
+                        <div class="font-medium">${n.node}</div>
+                        <div class="text-sm text-gray-500">CPU: ${(n.cpu_usage||0).toFixed(1)}%</div>
+                    </div>
+                </div>
+                <span class="text-sm font-medium ${n.cpu_usage>80?'text-red-600':n.cpu_usage>60?'text-orange-600':'text-yellow-700'}">${(n.cpu_usage||0).toFixed(1)}%</span>
+            </div>`).join('') : '<p class="text-gray-500 text-center py-4">Aucune donnée</p>';
+        const topMem = [...nodes].sort((a,b) => (b.memory_usage||0) - (a.memory_usage||0)).slice(0,3);
+        const topMemEl = document.getElementById('top-mem');
+        if (topMemEl) topMemEl.innerHTML = topMem.length ? topMem.map(n => `
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2">
+                <div class="flex items-center">
+                    <i class="fas fa-memory text-purple-600 mr-3"></i>
+                    <div>
+                        <div class="font-medium">${n.node}</div>
+                        <div class="text-sm text-gray-500">RAM: ${(n.memory_usage||0).toFixed(1)}%</div>
+                    </div>
+                </div>
+                <span class="text-sm font-medium ${n.memory_usage>85?'text-red-600':n.memory_usage>60?'text-purple-700':'text-purple-600'}">${(n.memory_usage||0).toFixed(1)}%</span>
+            </div>`).join('')  : '<p class="text-gray-500 text-center py-4">Aucune donnée</p>';
+        const withTemp = nodes.filter(n => typeof n.temperature === 'number');
+        const topTemp = withTemp.sort((a,b) => (b.temperature||0) - (a.temperature||0)).slice(0,3);
+        const topTempEl = document.getElementById('top-temp');
+        if (topTempEl) topTempEl.innerHTML = topTemp.length ? topTemp.map(n => `
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-2">
+                <div class="flex items-center">
+                    <i class="fas fa-thermometer-half text-red-600 mr-3"></i>
+                    <div>
+                        <div class="font-medium">${n.node}</div>
+                        <div class="text-sm text-gray-500">Temp: ${(n.temperature||0).toFixed(1)}°C</div>
+                    </div>
+                </div>
+                <span class="text-sm font-medium ${n.temperature>70?'text-red-600':n.temperature>55?'text-yellow-600':'text-green-600'}">${(n.temperature||0).toFixed(1)}°C</span>
+            </div>`).join('') : '<p class="text-gray-500 text-center py-4">Aucune donnée</p>';
+    }
+    function updateAlerts(alerts) {
+        console.log('[DASHBOARD.JS] updateAlerts', alerts);
+        const card = document.getElementById('alerts-card');
+        const container = document.getElementById('alerts-content');
+        if (!card || !container) return;
+        if (!alerts?.active_alerts || alerts.active_alerts.length === 0) {
+            card.style.display = 'none';
+            container.innerHTML = '<p class="text-green-600 text-center py-4"><i class="fas fa-check-circle mr-2"></i>Aucune alerte active</p>';
+            return;
+        }
+        card.style.display = '';
+        container.innerHTML = alerts.active_alerts.slice(0,6).map(alert => `
+            <div class="flex items-center p-3 bg-red-50 border-l-4 border-red-400 rounded-lg mb-2">
+                <i class="fas fa-exclamation-triangle text-red-600 mr-3"></i>
+                <div class="text-red-800">${alert.message || alert}</div>
+            </div>
+        `).join('');
+    }
+    function onEnterDashboard() {
+        if (initialized) return;
+        initialized = true;
+        console.log('[DASHBOARD.JS] onEnterDashboard : listeners setup');
+        document.addEventListener('app:cluster_metrics', (event) => {
+            console.log('[DASHBOARD.JS] EVENT app:cluster_metrics', event.detail);
+            updateFromOverview(event.detail);
+            updateNodesList(event.detail);
+        });
+        document.addEventListener('app:alerts_update', (event) => {
+            console.log('[DASHBOARD.JS] EVENT app:alerts_update', event.detail);
+            updateAlerts(event.detail);
+        });
+        // Afficher direct les dernières valeurs si dispo (state ou cache)
+        let firstCluster = null;
+        if (window.App && window.App.state && window.App.state.lastClusterMetrics) {
+            firstCluster = window.App.state.lastClusterMetrics;
+        } else if (window.App && window.App.cache) {
+            firstCluster = window.App.cache.load(window.App.cache.keys.cluster);
+        }
+        if(firstCluster){
+            console.log('[DASHBOARD.JS] FIRST DATA IMMEDIATE', firstCluster);
+            updateFromOverview(firstCluster);
+            updateNodesList(firstCluster);
+        }
+        let firstAlerts = null;
+        if (window.App && window.App.state && window.App.state.lastAlerts) {
+            firstAlerts = window.App.state.lastAlerts;
+        } else if (window.App && window.App.cache) {
+            firstAlerts = window.App.cache.load(window.App.cache.keys.alerts);
+        }
+        if(firstAlerts){
+            updateAlerts(firstAlerts);
+        }
+    }
+    document.addEventListener('page:enter', (event) => {
+        if(event.detail.page === 'dashboard') {
+            console.log('[DASHBOARD.JS] page:enter dashboard!');
+            onEnterDashboard();
+        }
+    });
+    if (window.location.pathname === '/' || window.location.pathname === '/dashboard') {
+        document.dispatchEvent(new CustomEvent('page:enter', { detail: { page: 'dashboard', path: window.location.pathname } }));
+    }
+})();
+
+```
+
+```javascript
+// monitoring.js
+(function() {
+    let initialized = false;
+    let cpuChart = null;
+    let memoryChart = null;
+    let diskChart = null;
+    let tempChart = null;
+
+    // Flags pour contrôler le flux et éviter l'interférence WS/XHR
+    let historyLoading = false;
+    let historyLoaded = false;
+    let historyScheduled = false;
+
+    function onEnterMonitoring() {
+        if (initialized) return;
+        initialized = true;
+        console.log('[MONITORING.JS] onEnterMonitoring : listeners setup');
+
+        // 1) Écoute WS pour MAJ tuiles immédiatement (léger)
+        document.addEventListener('app:cluster_metrics', (event) => {
+            console.log('[MONITORING.JS] EVENT app:cluster_metrics', event.detail);
+            updateClusterHeader(event.detail);
+            // 2) Planifier le chargement historique après le premier WS
+            if(!historyLoaded && !historyLoading && !historyScheduled){
+                historyScheduled = true;
+                setTimeout(() => {
+                    startHistoryLoadSequential();
+                }, 250); // petit délai pour laisser respirer le thread UI
+            }
+        });
+
+        document.addEventListener('app:alerts_update', (event) => {
+            console.log('[MONITORING.JS] EVENT app:alerts_update', event.detail);
+            updateAlerts(event.detail);
+        });
+
+        // Rendu immédiat depuis state ou cache
+        let firstCluster = null;
+        if (window.App && window.App.state && window.App.state.lastClusterMetrics) {
+            firstCluster = window.App.state.lastClusterMetrics;
+        } else if (window.App && window.App.cache) {
+            firstCluster = window.App.cache.load(window.App.cache.keys.cluster);
+        }
+        if(firstCluster){
+            updateClusterHeader(firstCluster);
+            if(!historyLoaded && !historyLoading && !historyScheduled){
+                historyScheduled = true;
+                setTimeout(() => startHistoryLoadSequential(), 150);
+            }
+        }
+    }
+
+    // MAJ des tuiles uniquement (pas les charts, pour éviter le thrash)
+    function updateClusterHeader(data) {
+        if(!data || !data.cluster_stats) return;
+        const nodesOnline = document.getElementById('online-nodes');
+        const avgCpu = document.getElementById('avg-cpu');
+        const avgMem = document.getElementById('avg-memory');
+        const avgTemp = document.getElementById('avg-temperature');
+        if(nodesOnline) nodesOnline.textContent = data.cluster_stats.online_nodes ?? '-';
+        if(avgCpu && data.cluster_stats.avg_cpu !== undefined) avgCpu.textContent = data.cluster_stats.avg_cpu.toFixed(1) + '%';
+        if(avgMem && data.cluster_stats.avg_memory !== undefined) avgMem.textContent = data.cluster_stats.avg_memory.toFixed(1) + '%';
+        if(avgTemp && data.cluster_stats.avg_temperature !== undefined) avgTemp.textContent = data.cluster_stats.avg_temperature.toFixed(1) + '°C';
+    }
+
+    // Démarre un chargement historique SEQUENTIEL (évite 4 XHR simultanés)
+    async function startHistoryLoadSequential(){
+        historyLoading = true;
+        try{
+            const queue = ['cpu','memory','disk','temperature'];
+            for(const metric of queue){
+                await fetchAndDrawHistory(metric);
+                // petite pause pour fluidité UI
+                await new Promise(res=>setTimeout(res, 120));
+            }
+            historyLoaded = true;
+        }catch(e){
+            console.error('[MONITORING.JS] startHistoryLoadSequential error', e);
+        }finally{
+            historyLoading = false;
+        }
+    }
+
+    // Chargement historique (évolution moyenne)
+    async function fetchAndDrawHistory(metric) {
+        let apiUrl = `/api/graphs/${metric}-history?hours=24&interval_minutes=10`;
+        let canvasId = metric+'-chart';
+        let loadingId = metric+'-chart-loading';
+        let yLabel = '';
+        let dataKey = '';
+        switch(metric){
+            case 'cpu':
+                yLabel = 'CPU (%)';
+                dataKey = 'avg_cpu';
+                break;
+            case 'memory':
+                yLabel = 'Mémoire (%)';
+                dataKey = 'avg_memory';
+                break;
+            case 'disk':
+                yLabel = 'Disque (%)';
+                dataKey = 'avg_disk';
+                break;
+            case 'temperature':
+                yLabel = 'Température (°C)';
+                dataKey = 'avg_temperature';
+                break;
+        }
+        const canvas = document.getElementById(canvasId);
+        const loading = document.getElementById(loadingId);
+        if(loading) loading.style.display = '';
+        if(canvas) canvas.style.display = 'none';
+        try {
+            console.log(`[MONITORING.JS] fetch historique ${metric} depuis ${apiUrl}`);
+            const resp = await fetch(apiUrl);
+            const json = await resp.json();
+            const history = Array.isArray(json.data) ? json.data : [];
+            const labels = history.map(pt=>pt.timestamp.slice(0,16).replace('T',' '));
+            const values = history.map(pt=>pt[dataKey] ?? null);
+            if(loading) loading.style.display = 'none';
+            if(canvas) canvas.style.display = '';
+            let chartObj = null;
+            if(metric === 'cpu') chartObj = cpuChart;
+            if(metric === 'memory') chartObj = memoryChart;
+            if(metric === 'disk') chartObj = diskChart;
+            if(metric === 'temperature') chartObj = tempChart;
+            if(!chartObj && canvas){
+                chartObj = new Chart(canvas.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: yLabel,
+                            data: values,
+                            borderColor: metric==='temperature'?'#ef4444':metric==='memory'?'#9333ea':metric==='cpu'?'#fbbf24':'#3b82f6',
+                            backgroundColor: 'rgba(0,0,0,0.04)',
+                            pointRadius: 0,
+                            tension: 0.2,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive:true,
+                        animation:false,
+                        plugins:{legend:{display:false}},
+                        scales:{
+                            x:{ticks:{maxTicksLimit:8,autoSkip:true}},
+                            y:{beginAtZero:true,suggestedMax: metric==='temperature'?100:100}
+                        }
+                    }
+                });
+                if(metric==='cpu') cpuChart=chartObj;
+                if(metric==='memory') memoryChart=chartObj;
+                if(metric==='disk') diskChart=chartObj;
+                if(metric==='temperature') tempChart=chartObj;
+            } else if(chartObj){
+                chartObj.data.labels = labels;
+                chartObj.data.datasets[0].data = values;
+                chartObj.update('none');
+            }
+        } catch(e){
+            console.error(`[MONITORING.JS] fetchAndDrawHistory error ${metric}`, e)
+        }
+    }
+
+    function updateAlerts(alerts) {
+        // À compléter selon besoins (ex : afficher dans un bloc id="alerts-content").
+    }
+
+    document.addEventListener('page:enter', (event) => {
+        if(event.detail.page === 'monitoring') {
+            console.log('[MONITORING.JS] page:enter monitoring!');
+            onEnterMonitoring();
+            // NE PAS lancer tout de suite les XHR, on attend le premier WS puis on planifie
+        }
+    });
+
+    if(window.location.pathname === '/monitoring'){
+        document.dispatchEvent(new CustomEvent('page:enter', { detail: { page: 'monitoring', path: window.location.pathname } }));
+    }
+})();
+
+```
+
+Petit point: j’ai corrigé le conflit et branché le rendu immédiat depuis le cache sur toutes les pages.
+
+- Correction du bug "Identifier 'CACHE_KEYS' déjà déclaré":
+  - J’ai encapsulé le cache dans `window.App.cache` pour éviter toute redéclaration si `app.js` est injecté 2 fois.
+  - Plus de `const` globaux, tout est sous `window.App.cache` avec `keys`, `save`, `load`, `TTL`.
+
+- Rendu instantané sur navigation:
+  - `dashboard.js`, `nodes.js`, `monitoring.js` utilisent maintenant en priorité:
+    1) `window.App.state.last*` s’il est déjà peuplé
+    2) sinon `window.App.cache.load(...)` pour peindre direct sans attendre un event WS
+  - Du coup, plus de micro-lag à l’arrivée sur la page.
+
+Tu peux tester direct. Si ça persiste, fais un hard refresh pour vider d’anciens scripts en cache du navigateur.
+
+- Fichiers touchés: `web/static/js/app.js`, `web/static/js/pages/dashboard.js`, `web/static/js/pages/nodes.js`, `web/static/js/pages/monitoring.js`
+
+Résumé rapide:
+- `app.js`: cache persistant déplacé dans `window.App.cache` + réémission immédiate depuis cache au boot.
+- `dashboard.js`, `nodes.js`, `monitoring.js`: affichage immédiat depuis `state` ou `localStorage` à l’entrée de page.
+
+---
+
+**User**
+
+app.js:1 [App.js] INIT App
+dashboard.js:151 [DASHBOARD.JS] page:enter dashboard!
+dashboard.js:117 [DASHBOARD.JS] onEnterDashboard : listeners setup
+app.js:119 [App.js] DOMContentLoaded => initSockets
+app.js:120 Uncaught TypeError: window.App.initSockets is not a function
+    at HTMLDocument.<anonymous> (app.js:120:16)
+(anonyme) @ app.js:120
+
+
+---
+
+**Cursor**
+
+Je vais corriger `app.js` pour ne plus réécrire `window.App` et ajouter proprement `initSockets` via `Object.assign` si absent, afin de résoudre l'erreur "window.App.initSockets is not a function". Ensuite j'initialise à nouveau au chargement du DOM.
+
+```javascript
+console.log('[App.js] INIT App');
+// Espace global App et cache persistant encapsulé (évite redéclarations)
+window.App = window.App || {};
+window.App.cache = window.App.cache || (function(){
+    const keys = {
+        cluster: 'dc:lastClusterMetrics',
+        health: 'dc:lastHealth',
+        alerts: 'dc:lastAlerts'
+    };
+    const TTL = 60000; // 60s : assez frais pour le premier rendu
+    function save(key, payload){
+        try{ localStorage.setItem(key, JSON.stringify({ t: Date.now(), v: payload })); }catch(_e){}
+    }
+    function load(key){
+        try{
+            const raw = localStorage.getItem(key);
+            if(!raw) return null;
+            const obj = JSON.parse(raw);
+            if(!obj || typeof obj.t !== 'number') return null;
+            if(Date.now() - obj.t > TTL) return null;
+            return obj.v;
+        }catch(_e){ return null; }
+    }
+    return { keys, TTL, save, load };
+})();
+
+// App global singleton: sockets + state partagé
+if (!window.App.initSockets) {
+    Object.assign(window.App, {
+        state: window.App.state || {
+            lastClusterMetrics: null,
+            lastHealth: null,
+            lastAlerts: null,
+        },
+        sockets: window.App.sockets || {
+            root: null,
+            monitoring: null,
+            health: null,
+        },
+        initSockets() {
+        try {
+            // 0) Hydrate depuis cache pour affichage immédiat
+            if (!this.state.lastClusterMetrics) {
+                const cached = window.App.cache.load(window.App.cache.keys.cluster);
+                if (cached) {
+                    this.state.lastClusterMetrics = cached;
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: cached }));
+                }
+            }
+            if (!this.state.lastHealth) {
+                const cachedH = window.App.cache.load(window.App.cache.keys.health);
+                if (cachedH) {
+                    this.state.lastHealth = cachedH;
+                    document.dispatchEvent(new CustomEvent('app:health_update', { detail: cachedH }));
+                }
+            }
+            if (!this.state.lastAlerts) {
+                const cachedA = window.App.cache.load(window.App.cache.keys.alerts);
+                if (cachedA) {
+                    this.state.lastAlerts = cachedA;
+                    document.dispatchEvent(new CustomEvent('app:alerts_update', { detail: cachedA }));
+                }
+            }
+
+            if (!this.sockets.root) {
+                this.sockets.root = io({
+                    transports: ['websocket', 'polling'],
+                    reconnection: true,
+                    reconnectionDelay: 1000,
+                    reconnectionDelayMax: 5000,
+                    reconnectionAttempts: Infinity
+                });
+                this.sockets.root.on('connect', () => console.log('[App.js] SOCKET ROOT CONNECT'));
+                this.sockets.root.on('redis_cluster_metrics', (data) => {
+                    console.log('[App.js] EVENT redis_cluster_metrics RECU', data);
+                    this.state.lastClusterMetrics = data;
+                    window.App.cache.save(window.App.cache.keys.cluster, data);
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: data }));
+                });
+                this.sockets.root.on('cluster_metrics', (data) => {
+                    console.log('[App.js] EVENT cluster_metrics RECU', data);
+                    this.state.lastClusterMetrics = data;
+                    window.App.cache.save(window.App.cache.keys.cluster, data);
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: data }));
+                });
+            }
+            if (!this.sockets.monitoring) {
+                this.sockets.monitoring = io('/monitoring');
+                this.sockets.monitoring.on('connect', () => console.log('[App.js] SOCKET MONITORING CONNECT'));
+                this.sockets.monitoring.on('cluster_metrics', (data) => {
+                    console.log('[App.js] EVENT cluster_metrics (monitoring) RECU', data);
+                    this.state.lastClusterMetrics = data;
+                    window.App.cache.save(window.App.cache.keys.cluster, data);
+                    document.dispatchEvent(new CustomEvent('app:cluster_metrics', { detail: data }));
+                });
+                this.sockets.monitoring.on('alerts_update', (data) => {
+                    console.log('[App.js] EVENT alerts_update (monitoring) RECU', data);
+                    this.state.lastAlerts = data;
+                    window.App.cache.save(window.App.cache.keys.alerts, data);
+                    document.dispatchEvent(new CustomEvent('app:alerts_update', { detail: data }));
+                });
+            }
+            if (!this.sockets.health) {
+                this.sockets.health = io('/health');
+                this.sockets.health.on('connect', () => console.log('[App.js] SOCKET HEALTH CONNECT'));
+                this.sockets.health.on('health_update', (data) => {
+                    console.log('[App.js] EVENT health_update RECU', data);
+                    this.state.lastHealth = data;
+                    window.App.cache.save(window.App.cache.keys.health, data);
+                    document.dispatchEvent(new CustomEvent('app:health_update', { detail: data }));
+                });
+            }
+        } catch (e) {
+            console.error('[App.js] Init sockets error', e);
+        }
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('[App.js] DOMContentLoaded => initSockets');
+    window.App.initSockets();
+});
+```
+
+J’ai corrigé la cause: on réécrivait `window.App` une seconde fois, ce qui faisait disparaître `initSockets`. Maintenant:
+- On initialise `window.App` une seule fois.
+- On ajoute `initSockets`, `state` et `sockets` via `Object.assign` seulement s’ils n’existent pas.
+- Du coup `window.App.initSockets()` est bien présent au `DOMContentLoaded`.
+
+Tu peux recharger. Si tu vois encore un léger flash, c’est probablement le CSS qui se met en place, pas les données: côté JS, chaque page lit d’abord `window.App.state` puis sinon `localStorage` et affiche tout de suite, avant d’attendre le prochain event WS.
+
+---
+
+**User**
+
+Uncaught Error: Canvas is already in use. Chart with ID '0' must be destroyed before the canvas with ID 'cpu-chart' can be reused.
+
+sur noeuds
+
+---
+
+**Cursor**
+
+Je vais corriger l'erreur de Chart.js en détruisant toute instance existante liée aux canvas avant de recréer un graphique, et en nettoyant les graphiques lors du changement de page. J'applique les modifications maintenant.
+
+```javascript
+// nodes.js
+(function() {
+    let initialized = false;
+    let nodes = [];
+    let cpuChart = null;
+    let memoryChart = null;
+    let tempChart = null;
+    let lastChartsUpdateTs = 0;
+    let mon = null;
+
+    function ensureCanvasFree(canvas){
+        if(!canvas) return;
+        try{
+            const existing = Chart.getChart(canvas);
+            if(existing) existing.destroy();
+        }catch(_e){}
+    }
+
+    function updateNodesList() {
+        console.log('[NODES.JS] updateNodesList', nodes);
+        const container = document.getElementById('nodes-list');
+        const countElement = document.getElementById('nodes-count');
+        if (!container || !countElement) return; // Sécurité DOM
+        countElement.textContent = `${nodes.length} nœud${nodes.length > 1 ? 's' : ''}`;
+        if (nodes.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-12 col-span-full">
+                    <i class="fas fa-server text-gray-300 text-4xl mb-4"></i>
+                    <p class="text-gray-500">Aucun nœud disponible</p>
+                </div>
+            `;
+            return;
+        }
+        container.innerHTML = nodes.map(node => {
+            const cpu = Number(node.cpu_usage || 0);
+            const mem = Number(node.memory_usage || 0);
+            const temp = Number(node.temperature || 0);
+            const disk = Number(node.disk_usage || 0);
+            const up = (node.status === 'ready' || node.is_healthy);
+            return `
+            <div class="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-3 h-3 rounded-full ${up ? 'bg-green-500' : 'bg-red-500'}"></div>
+                        <h3 class="text-lg font-semibold text-gray-900">${node.node}</h3>
+                        <span class="px-2 py-1 rounded-full text-xs font-medium ${up ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${up ? 'En ligne' : 'Hors ligne'}</span>
+                    </div>
+                    <div class="text-sm text-gray-500">MAJ: ${new Date().toLocaleTimeString()}</div>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>CPU</span><span>${cpu.toFixed(1)}%</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${cpu<60?'bg-yellow-400':cpu<85?'bg-orange-500':'bg-red-600'}" style="width:${Math.min(cpu,100)}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>Mémoire</span><span>${mem.toFixed(1)}%</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${mem<60?'bg-purple-500':mem<85?'bg-purple-600':'bg-purple-800'}" style="width:${Math.min(mem,100)}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>Disque</span><span>${disk.toFixed(1)}%</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${disk<70?'bg-blue-500':disk<90?'bg-blue-600':'bg-blue-800'}" style="width:${Math.min(disk,100)}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm text-gray-600"><span>Température</span><span>${temp.toFixed(1)}°C</span></div>
+                        <div class="w-full h-2 bg-gray-100 rounded"><div class="h-2 rounded ${temp<55?'bg-green-500':temp<70?'bg-yellow-500':'bg-red-600'}" style="width:${Math.min(temp,100)}%"></div></div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function updateOverviewMetrics() {
+        console.log('[NODES.JS] updateOverviewMetrics');
+        // Vérif DOM
+        const onlineEl = document.getElementById('nodes-online');
+        const avgCpuEl = document.getElementById('avg-cpu');
+        const avgMemEl = document.getElementById('avg-memory');
+        const avgTempEl = document.getElementById('avg-temp');
+        if (!onlineEl || !avgCpuEl || !avgMemEl || !avgTempEl) return;
+        const online = nodes.filter(n => (n.status === 'ready' || n.is_healthy));
+        const avg = (arr) => arr.length ? (arr.reduce((a,b)=>a+b,0) / arr.length) : 0;
+        const avgCpu = avg(online.map(n => n.cpu_usage || 0));
+        const avgMem = avg(online.map(n => n.memory_usage || 0));
+        const avgTemp = avg(online.map(n => n.temperature || 0));
+        onlineEl.textContent = online.length.toString();
+        avgCpuEl.textContent = avgCpu ? `${avgCpu.toFixed(1)}%` : '-';
+        avgMemEl.textContent = avgMem ? `${avgMem.toFixed(1)}%` : '-';
+        avgTempEl.textContent = avgTemp ? `${avgTemp.toFixed(1)}°C` : '-';
+    }
+
+    function updateCharts() {
+        console.log('[NODES.JS] updateCharts');
+        const cpuCanvas = document.getElementById('cpu-chart');
+        const memCanvas = document.getElementById('memory-chart');
+        const tempCanvas = document.getElementById('temp-chart');
+        if (!cpuCanvas || !memCanvas || !tempCanvas) return;
+        const now = Date.now();
+        if (now - lastChartsUpdateTs < 1200) return;
+        lastChartsUpdateTs = now;
+        const onlineNodes = nodes.filter(n => (n.status === 'ready' || n.is_healthy));
+        const labels = onlineNodes.map(n => n.node);
+        const cpuData = onlineNodes.map(n => n.cpu_usage || 0);
+        const memData = onlineNodes.map(n => n.memory_usage || 0);
+        const tempData = onlineNodes.map(n => n.temperature || 0);
+        const commonOptions = {
+            responsive: true,
+            animation: { duration: 0 },
+            scales: { y: { beginAtZero: true, suggestedMax: 100 } },
+            plugins: { legend: { display: false } }
+        };
+        if (!cpuChart) {
+            ensureCanvasFree(cpuCanvas);
+            cpuChart = new Chart(cpuCanvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'CPU', data: cpuData, backgroundColor: 'rgba(251,191,36,0.8)' }] },
+                options: commonOptions
+            });
+        } else {
+            cpuChart.data.labels = labels;
+            cpuChart.data.datasets[0].data = cpuData;
+            cpuChart.update('none');
+        }
+        if (!memoryChart) {
+            ensureCanvasFree(memCanvas);
+            memoryChart = new Chart(memCanvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Mémoire', data: memData, backgroundColor: 'rgba(147,51,234,0.8)' }] },
+                options: commonOptions
+            });
+        } else {
+            memoryChart.data.labels = labels;
+            memoryChart.data.datasets[0].data = memData;
+            memoryChart.update('none');
+        }
+        if (!tempChart) {
+            ensureCanvasFree(tempCanvas);
+            tempChart = new Chart(tempCanvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Température', data: tempData, backgroundColor: 'rgba(239,68,68,0.8)' }] },
+                options: {...commonOptions, scales: { y: { beginAtZero: true } } }
+            });
+        } else {
+            tempChart.data.labels = labels;
+            tempChart.data.datasets[0].data = tempData;
+            tempChart.update('none');
+        }
+    }
+
+    function cleanupCharts() {
+        if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
+        if (memoryChart) { memoryChart.destroy(); memoryChart = null; }
+        if (tempChart) { tempChart.destroy(); tempChart = null; }
+    }
+
+    function onNodesPage() {
+        if (initialized) return;
+        initialized = true;
+        console.log('[NODES.JS] onNodesPage - listeners WS branchés');
+        // Branche le WS seulement ici (évite les fuites listeners et multiples WS)
+        mon = window.App && window.App.sockets && window.App.sockets.monitoring
+            ? window.App.sockets.monitoring
+            : io('/monitoring');
+        mon.on('cluster_metrics', handleClusterMetrics);
+        mon.on('connect', () => {
+            console.log('[NODES.JS] SOCKET MONITORING CONNECTED');
+            mon.emit('request_nodes_status', {});
+        });
+        // Pour éviter des soucis lors du retour, gère une cleanup si tu veux (à voir sur page:leave)
+        // Ecoute update globale cluster_metrics côté app.js aussi
+        document.addEventListener('app:cluster_metrics', (evt) => {
+            console.log('[NODES.JS] EVENT app:cluster_metrics', evt.detail);
+            handleClusterMetrics(evt.detail);
+        });
+
+        // Rendu immédiat depuis cache/state sans attendre le prochain WS
+        const immediate = (window.App && window.App.state && window.App.state.lastClusterMetrics)
+            || (window.App && window.App.cache && window.App.cache.load(window.App.cache.keys.cluster));
+        if (immediate) {
+            console.log('[NODES.JS] FIRST DATA IMMEDIATE');
+            handleClusterMetrics(immediate);
+        }
+    }
+    
+    function handleClusterMetrics(data) {
+        console.log('[NODES.JS] handleClusterMetrics', data);
+        const mapped = data && data.nodes ? Object.entries(data.nodes).map(([node, metrics]) => ({
+            node,
+            cpu_usage: metrics.cpu_usage || 0,
+            memory_usage: metrics.memory_usage || 0,
+            disk_usage: (metrics.disk_usage !== undefined) ? metrics.disk_usage : (metrics.disk_total ? (100 - (100 * (metrics.disk_available || 0) / metrics.disk_total)) : 0),
+            temperature: metrics.temperature || 0,
+            is_healthy: metrics.is_healthy,
+            status: (metrics.cpu_usage || 0) > 0 ? 'ready' : 'unknown'
+        })) : [];
+        nodes = mapped;
+        updateNodesList();
+        updateOverviewMetrics();
+        updateCharts();
+    }
+
+    document.addEventListener('page:enter', (event) => {
+        if (event.detail.page === 'nodes') {
+            console.log('[NODES.JS] page:enter nodes!');
+            onNodesPage();
+        }
+    });
+    // Nettoyage lors d'un changement de page (si on quitte nodes)
+    document.addEventListener('page:enter', (event) => {
+        if (event.detail.page !== 'nodes') {
+            cleanupCharts();
+        }
+    });
+    if (window.location.pathname === '/nodes') {
+        document.dispatchEvent(new CustomEvent('page:enter', { detail: { page: 'nodes', path: window.location.pathname } }));
+    }
+    // Tu pourrais envisager un page:leave pour destroy les charts si besoin.
+})();
+
+```
+
+C’est bon, j’ai sécurisé la page noeuds contre le doublon de Chart:
+
+- Avant de créer un graphique, je détruis toute instance déjà attachée au canvas via `Chart.getChart(canvas)`.
+- Je nettoie aussi les graphiques quand on quitte la page `nodes` pour éviter les réutilisations de canvas.
+
+Tu ne devrais plus voir l’erreur "Canvas is already in use" et les graphes se mettront à jour sans recréation.
+
+---
+
+**User**
+
+en revanche, quand je suis sur la page monitoring, je ne peut pas aller sur d'autres pages, les xhr history bloque tout.
+ont peut pas les mettre en asynchrone ?
+
+---
+
+**Cursor**
+
+Je vais rendre le chargement de l’historique non-bloquant et annulable: j’ajoute des AbortController, des chargements échelonnés via setTimeout/requestIdleCallback, et un cleanup quand on quitte la page monitoring. J’édite `web/static/js/pages/monitoring.js` maintenant.
+
+```javascript
+// monitoring.js
+(function() {
+    let initialized = false;
+    let cpuChart = null;
+    let memoryChart = null;
+    let diskChart = null;
+    let tempChart = null;
+
+    // Flags pour contrôler le flux et éviter l'interférence WS/XHR
+    let historyLoading = false;
+    let historyLoaded = false;
+    let historyScheduled = false;
+    let cancelled = false;
+    let abortControllers = [];
+
+    function onEnterMonitoring() {
+        if (initialized) return;
+        initialized = true;
+        console.log('[MONITORING.JS] onEnterMonitoring : listeners setup');
+        cancelled = false;
+
+        // 1) Écoute WS pour MAJ tuiles immédiatement (léger)
+        document.addEventListener('app:cluster_metrics', (event) => {
+            console.log('[MONITORING.JS] EVENT app:cluster_metrics', event.detail);
+            updateClusterHeader(event.detail);
+            // 2) Planifier le chargement historique après le premier WS
+            if(!historyLoaded && !historyLoading && !historyScheduled){
+                historyScheduled = true;
+                scheduleNonBlocking(() => startHistoryLoadSequential());
+            }
+        });
+
+        document.addEventListener('app:alerts_update', (event) => {
+            console.log('[MONITORING.JS] EVENT app:alerts_update', event.detail);
+            updateAlerts(event.detail);
+        });
+
+        // Rendu immédiat depuis state ou cache
+        let firstCluster = null;
+        if (window.App && window.App.state && window.App.state.lastClusterMetrics) {
+            firstCluster = window.App.state.lastClusterMetrics;
+        } else if (window.App && window.App.cache) {
+            firstCluster = window.App.cache.load(window.App.cache.keys.cluster);
+        }
+        if(firstCluster){
+            updateClusterHeader(firstCluster);
+            if(!historyLoaded && !historyLoading && !historyScheduled){
+                historyScheduled = true;
+                scheduleNonBlocking(() => startHistoryLoadSequential());
+            }
+        }
+    }
+
+    // MAJ des tuiles uniquement (pas les charts, pour éviter le thrash)
+    function updateClusterHeader(data) {
+        if(!data || !data.cluster_stats) return;
+        const nodesOnline = document.getElementById('online-nodes');
+        const avgCpu = document.getElementById('avg-cpu');
+        const avgMem = document.getElementById('avg-memory');
+        const avgTemp = document.getElementById('avg-temperature');
+        if(nodesOnline) nodesOnline.textContent = data.cluster_stats.online_nodes ?? '-';
+        if(avgCpu && data.cluster_stats.avg_cpu !== undefined) avgCpu.textContent = data.cluster_stats.avg_cpu.toFixed(1) + '%';
+        if(avgMem && data.cluster_stats.avg_memory !== undefined) avgMem.textContent = data.cluster_stats.avg_memory.toFixed(1) + '%';
+        if(avgTemp && data.cluster_stats.avg_temperature !== undefined) avgTemp.textContent = data.cluster_stats.avg_temperature.toFixed(1) + '°C';
+    }
+
+    // Démarre un chargement historique non-bloquant et annulable
+    function startHistoryLoadSequential(){
+        historyLoading = true;
+        const queue = ['cpu','memory','disk','temperature'];
+        let idx = 0;
+        const step = () => {
+            if (cancelled) { finishHistory(); return; }
+            if (idx >= queue.length) { historyLoaded = true; finishHistory(); return; }
+            const metric = queue[idx++];
+            const ac = new AbortController();
+            abortControllers.push(ac);
+            fetchAndDrawHistory(metric, ac.signal)
+                .catch((e)=>{
+                    if (e?.name !== 'AbortError') console.error('[MONITORING.JS] fetch metric error', metric, e);
+                })
+                .finally(() => {
+                    // enchaîne la prochaine étape au repos du thread
+                    scheduleNonBlocking(step);
+                });
+        };
+        scheduleNonBlocking(step);
+    }
+    function finishHistory(){
+        historyLoading = false;
+        // purge les controllers consommés
+        abortControllers = abortControllers.filter(c => !c.signal.aborted);
+    }
+    function cancelHistory(){
+        cancelled = true;
+        historyScheduled = false;
+        historyLoading = false;
+        try{ abortControllers.forEach(c=>{ try{ c.abort(); }catch(_e){} }); }catch(_e){}
+        abortControllers = [];
+    }
+    function scheduleNonBlocking(fn){
+        if (window.requestIdleCallback) {
+            try { return window.requestIdleCallback(fn, { timeout: 300 }); } catch(_e){}
+        }
+        setTimeout(fn, 0);
+    }
+
+    // Chargement historique (évolution moyenne)
+    async function fetchAndDrawHistory(metric, signal) {
+        let apiUrl = `/api/graphs/${metric}-history?hours=24&interval_minutes=10`;
+        let canvasId = metric+'-chart';
+        let loadingId = metric+'-chart-loading';
+        let yLabel = '';
+        let dataKey = '';
+        switch(metric){
+            case 'cpu':
+                yLabel = 'CPU (%)';
+                dataKey = 'avg_cpu';
+                break;
+            case 'memory':
+                yLabel = 'Mémoire (%)';
+                dataKey = 'avg_memory';
+                break;
+            case 'disk':
+                yLabel = 'Disque (%)';
+                dataKey = 'avg_disk';
+                break;
+            case 'temperature':
+                yLabel = 'Température (°C)';
+                dataKey = 'avg_temperature';
+                break;
+        }
+        const canvas = document.getElementById(canvasId);
+        const loading = document.getElementById(loadingId);
+        if(loading) loading.style.display = '';
+        if(canvas) canvas.style.display = 'none';
+        try {
+            console.log(`[MONITORING.JS] fetch historique ${metric} depuis ${apiUrl}`);
+            const resp = await fetch(apiUrl, { signal });
+            const json = await resp.json();
+            const history = Array.isArray(json.data) ? json.data : [];
+            const labels = history.map(pt=>pt.timestamp.slice(0,16).replace('T',' '));
+            const values = history.map(pt=>pt[dataKey] ?? null);
+            if(loading) loading.style.display = 'none';
+            if(canvas) canvas.style.display = '';
+            let chartObj = null;
+            if(metric === 'cpu') chartObj = cpuChart;
+            if(metric === 'memory') chartObj = memoryChart;
+            if(metric === 'disk') chartObj = diskChart;
+            if(metric === 'temperature') chartObj = tempChart;
+            if(!chartObj && canvas){
+                chartObj = new Chart(canvas.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: yLabel,
+                            data: values,
+                            borderColor: metric==='temperature'?'#ef4444':metric==='memory'?'#9333ea':metric==='cpu'?'#fbbf24':'#3b82f6',
+                            backgroundColor: 'rgba(0,0,0,0.04)',
+                            pointRadius: 0,
+                            tension: 0.2,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive:true,
+                        animation:false,
+                        plugins:{legend:{display:false}},
+                        scales:{
+                            x:{ticks:{maxTicksLimit:8,autoSkip:true}},
+                            y:{beginAtZero:true,suggestedMax: metric==='temperature'?100:100}
+                        }
+                    }
+                });
+                if(metric==='cpu') cpuChart=chartObj;
+                if(metric==='memory') memoryChart=chartObj;
+                if(metric==='disk') diskChart=chartObj;
+                if(metric==='temperature') tempChart=chartObj;
+            } else if(chartObj){
+                chartObj.data.labels = labels;
+                chartObj.data.datasets[0].data = values;
+                chartObj.update('none');
+            }
+        } catch(e){
+            if (e?.name === 'AbortError') return; // navigation ou annulation
+            console.error(`[MONITORING.JS] fetchAndDrawHistory error ${metric}`, e)
+        }
+    }
+
+    function updateAlerts(alerts) {
+        // À compléter selon besoins (ex : afficher dans un bloc id="alerts-content").
+    }
+
+    document.addEventListener('page:enter', (event) => {
+        if(event.detail.page === 'monitoring') {
+            console.log('[MONITORING.JS] page:enter monitoring!');
+            onEnterMonitoring();
+            // NE PAS lancer tout de suite les XHR, on attend le premier WS puis on planifie
+        }
+    });
+    // Si on quitte la page monitoring, annule toutes les requêtes et nettoie l'état
+    document.addEventListener('page:enter', (event) => {
+        if (event.detail.page !== 'monitoring') {
+            cancelHistory();
+        }
+    });
+
+    if(window.location.pathname === '/monitoring'){
+        document.dispatchEvent(new CustomEvent('page:enter', { detail: { page: 'monitoring', path: window.location.pathname } }));
+    }
+})();
+
+```
+
+OK, j’ai rendu l’historique non-bloquant et annulable sur la page monitoring.
+
+- Chargements async et annulables:
+  - Chaque métrique est fetch via AbortController, avec un petit échelonnement non bloquant (requestIdleCallback si dispo, sinon setTimeout).
+  - Plus d’attente séquentielle qui monopolise le thread, la navigation htmx reste fluide.
+
+- Cleanup à la navigation:
+  - Si tu quittes monitoring, toutes les requêtes en cours sont abort, et les flags sont remis à plat. Plus d’effet de page bloquée.
+
+- Détails changés dans `web/static/js/pages/monitoring.js`:
+  - Ajout de `cancelled`, `abortControllers`, `cancelHistory()`, `scheduleNonBlocking()`.
+  - `startHistoryLoadSequential()` ne fait plus d’await en chaîne, lance les étapes de manière non bloquante.
+  - `fetchAndDrawHistory(metric, signal)` utilise `fetch(..., { signal })` et ignore les `AbortError`.
+  - Cleanup quand `page:enter` cible une autre page que `monitoring`.
+
+Tu peux réessayer de passer de monitoring vers dashboard/nodes, ça doit être instantané même si l’historique n’a pas fini de se charger.
+
+---
+
+**User**
+
+VM209 monitoring.js:187 [MONITORING.JS] fetchAndDrawHistory error cpu Error: Canvas is already in use. Chart with ID '9' must be destroyed before the canvas with ID 'cpu-chart' can be reused.
+    at new bn (VM259 chart.min.js:13:87572)
+    at fetchAndDrawHistory (VM209 monitoring.js:152:28)
+
+---
+
+**Cursor**
+
+```javascript
+// monitoring.js
+(function() {
+    let initialized = false;
+    let cpuChart = null;
+    let memoryChart = null;
+    let diskChart = null;
+    let tempChart = null;
+
+    // Flags pour contrôler le flux et éviter l'interférence WS/XHR
+    let historyLoading = false;
+    let historyLoaded = false;
+    let historyScheduled = false;
+    let cancelled = false;
+    let abortControllers = [];
+
+    function ensureCanvasFree(canvas){
+        if(!canvas) return;
+        try{
+            const existing = Chart.getChart(canvas);
+            if(existing) existing.destroy();
+        }catch(_e){}
+    }
+
+    function cleanupCharts(){
+        try{ if(cpuChart){ cpuChart.destroy(); cpuChart=null; } }catch(_e){}
+        try{ if(memoryChart){ memoryChart.destroy(); memoryChart=null; } }catch(_e){}
+        try{ if(diskChart){ diskChart.destroy(); diskChart=null; } }catch(_e){}
+        try{ if(tempChart){ tempChart.destroy(); tempChart=null; } }catch(_e){}
+    }
+
+    function onEnterMonitoring() {
+        if (initialized) return;
+        initialized = true;
+        console.log('[MONITORING.JS] onEnterMonitoring : listeners setup');
+        cancelled = false;
+
+        // 1) Écoute WS pour MAJ tuiles immédiatement (léger)
+        document.addEventListener('app:cluster_metrics', (event) => {
+            console.log('[MONITORING.JS] EVENT app:cluster_metrics', event.detail);
+            updateClusterHeader(event.detail);
+            // 2) Planifier le chargement historique après le premier WS
+            if(!historyLoaded && !historyLoading && !historyScheduled){
+                historyScheduled = true;
+                scheduleNonBlocking(() => startHistoryLoadSequential());
+            }
+        });
+
+        document.addEventListener('app:alerts_update', (event) => {
+            console.log('[MONITORING.JS] EVENT app:alerts_update', event.detail);
+            updateAlerts(event.detail);
+        });
+
+        // Rendu immédiat depuis state ou cache
+        let firstCluster = null;
+        if (window.App && window.App.state && window.App.state.lastClusterMetrics) {
+            firstCluster = window.App.state.lastClusterMetrics;
+        } else if (window.App && window.App.cache) {
+            firstCluster = window.App.cache.load(window.App.cache.keys.cluster);
+        }
+        if(firstCluster){
+            updateClusterHeader(firstCluster);
+            if(!historyLoaded && !historyLoading && !historyScheduled){
+                historyScheduled = true;
+                scheduleNonBlocking(() => startHistoryLoadSequential());
+            }
+        }
+    }
+
+    // MAJ des tuiles uniquement (pas les charts, pour éviter le thrash)
+    function updateClusterHeader(data) {
+        if(!data || !data.cluster_stats) return;
+        const nodesOnline = document.getElementById('online-nodes');
+        const avgCpu = document.getElementById('avg-cpu');
+        const avgMem = document.getElementById('avg-memory');
+        const avgTemp = document.getElementById('avg-temperature');
+        if(nodesOnline) nodesOnline.textContent = data.cluster_stats.online_nodes ?? '-';
+        if(avgCpu && data.cluster_stats.avg_cpu !== undefined) avgCpu.textContent = data.cluster_stats.avg_cpu.toFixed(1) + '%';
+        if(avgMem && data.cluster_stats.avg_memory !== undefined) avgMem.textContent = data.cluster_stats.avg_memory.toFixed(1) + '%';
+        if(avgTemp && data.cluster_stats.avg_temperature !== undefined) avgTemp.textContent = data.cluster_stats.avg_temperature.toFixed(1) + '°C';
+    }
+
+    // Démarre un chargement historique non-bloquant et annulable
+    function startHistoryLoadSequential(){
+        historyLoading = true;
+        const queue = ['cpu','memory','disk','temperature'];
+        let idx = 0;
+        const step = () => {
+            if (cancelled) { finishHistory(); return; }
+            if (idx >= queue.length) { historyLoaded = true; finishHistory(); return; }
+            const metric = queue[idx++];
+            const ac = new AbortController();
+            abortControllers.push(ac);
+            fetchAndDrawHistory(metric, ac.signal)
+                .catch((e)=>{
+                    if (e?.name !== 'AbortError') console.error('[MONITORING.JS] fetch metric error', metric, e);
+                })
+                .finally(() => {
+                    // enchaîne la prochaine étape au repos du thread
+                    scheduleNonBlocking(step);
+                });
+        };
+        scheduleNonBlocking(step);
+    }
+    function finishHistory(){
+        historyLoading = false;
+        // purge les controllers consommés
+        abortControllers = abortControllers.filter(c => !c.signal.aborted);
+    }
+    function cancelHistory(){
+        cancelled = true;
+        historyScheduled = false;
+        historyLoading = false;
+        try{ abortControllers.forEach(c=>{ try{ c.abort(); }catch(_e){} }); }catch(_e){}
+        abortControllers = [];
+    }
+    function scheduleNonBlocking(fn){
+        if (window.requestIdleCallback) {
+            try { return window.requestIdleCallback(fn, { timeout: 300 }); } catch(_e){}
+        }
+        setTimeout(fn, 0);
+    }
+
+    // Chargement historique (évolution moyenne)
+    async function fetchAndDrawHistory(metric, signal) {
+        let apiUrl = `/api/graphs/${metric}-history?hours=24&interval_minutes=10`;
+        let canvasId = metric+'-chart';
+        let loadingId = metric+'-chart-loading';
+        let yLabel = '';
+        let dataKey = '';
+        switch(metric){
+            case 'cpu':
+                yLabel = 'CPU (%)';
+                dataKey = 'avg_cpu';
+                break;
+            case 'memory':
+                yLabel = 'Mémoire (%)';
+                dataKey = 'avg_memory';
+                break;
+            case 'disk':
+                yLabel = 'Disque (%)';
+                dataKey = 'avg_disk';
+                break;
+            case 'temperature':
+                yLabel = 'Température (°C)';
+                dataKey = 'avg_temperature';
+                break;
+        }
+        const canvas = document.getElementById(canvasId);
+        const loading = document.getElementById(loadingId);
+        if(loading) loading.style.display = '';
+        if(canvas) canvas.style.display = 'none';
+        try {
+            console.log(`[MONITORING.JS] fetch historique ${metric} depuis ${apiUrl}`);
+            const resp = await fetch(apiUrl, { signal });
+            const json = await resp.json();
+            const history = Array.isArray(json.data) ? json.data : [];
+            const labels = history.map(pt=>pt.timestamp.slice(0,16).replace('T',' '));
+            const values = history.map(pt=>pt[dataKey] ?? null);
+            if(loading) loading.style.display = 'none';
+            if(canvas) canvas.style.display = '';
+            let chartObj = null;
+            if(metric === 'cpu') chartObj = cpuChart;
+            if(metric === 'memory') chartObj = memoryChart;
+            if(metric === 'disk') chartObj = diskChart;
+            if(metric === 'temperature') chartObj = tempChart;
+            if(!chartObj && canvas){
+                ensureCanvasFree(canvas);
+                chartObj = new Chart(canvas.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: yLabel,
+                            data: values,
+                            borderColor: metric==='temperature'?'#ef4444':metric==='memory'?'#9333ea':metric==='cpu'?'#fbbf24':'#3b82f6',
+                            backgroundColor: 'rgba(0,0,0,0.04)',
+                            pointRadius: 0,
+                            tension: 0.2,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive:true,
+                        animation:false,
+                        plugins:{legend:{display:false}},
+                        scales:{
+                            x:{ticks:{maxTicksLimit:8,autoSkip:true}},
+                            y:{beginAtZero:true,suggestedMax: metric==='temperature'?100:100}
+                        }
+                    }
+                });
+                if(metric==='cpu') cpuChart=chartObj;
+                if(metric==='memory') memoryChart=chartObj;
+                if(metric==='disk') diskChart=chartObj;
+                if(metric==='temperature') tempChart=chartObj;
+            } else if(chartObj){
+                chartObj.data.labels = labels;
+                chartObj.data.datasets[0].data = values;
+                chartObj.update('none');
+            }
+        } catch(e){
+            if (e?.name === 'AbortError') return; // navigation ou annulation
+            console.error(`[MONITORING.JS] fetchAndDrawHistory error ${metric}`, e)
+        }
+    }
+
+    function updateAlerts(alerts) {
+        // À compléter selon besoins (ex : afficher dans un bloc id="alerts-content").
+    }
+
+    document.addEventListener('page:enter', (event) => {
+        if(event.detail.page === 'monitoring') {
+            console.log('[MONITORING.JS] page:enter monitoring!');
+            onEnterMonitoring();
+            // NE PAS lancer tout de suite les XHR, on attend le premier WS puis on planifie
+        }
+    });
+    // Si on quitte la page monitoring, annule toutes les requêtes et nettoie l'état
+    document.addEventListener('page:enter', (event) => {
+        if (event.detail.page !== 'monitoring') {
+            cancelHistory();
+            cleanupCharts();
+        }
+    });
+
+    if(window.location.pathname === '/monitoring'){
+        document.dispatchEvent(new CustomEvent('page:enter', { detail: { page: 'monitoring', path: window.location.pathname } }));
+    }
+})();
+
+```
+
+Yes, bien vu. C’était le même souci que sur la page nœuds.
+
+- J’ai ajouté un `ensureCanvasFree(canvas)` dans `monitoring.js` qui détruit tout chart déjà associé au canvas via `Chart.getChart(canvas)` avant d’instancier.
+- J’ai ajouté `cleanupCharts()` et je le déclenche quand on quitte la page monitoring pour éviter toute réutilisation de canvas occupé.
+- Le chargement historique reste annulable (AbortController) et non-bloquant.
+
+Tu ne devrais plus voir l’erreur Canvas sur monitoring, même après plusieurs navigations.
+
+---
+
+**User**
+
+@js/  met en commentaire les console.log
 

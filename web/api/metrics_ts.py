@@ -26,18 +26,33 @@ async def get_ts_range(
     - `frm`/`to` sont en millisecondes depuis epoch.
     """
     try:
-        points = ts_range(key, frm, to, aggregation=agg, bucket_ms=bucket_ms)
+        # Sanitize params
+        agg_val = (agg or None)
+        try:
+            bucket_val = int(bucket_ms) if bucket_ms is not None else None
+        except Exception:
+            bucket_val = None
+
+        points = ts_range(key, frm, to, aggregation=agg_val, bucket_ms=bucket_val)
+        return {
+            "key": key,
+            "from": frm,
+            "to": to,
+            "aggregation": agg_val,
+            "bucket_ms": bucket_val,
+            "points": points,
+        }
+    except Exception as e:
+        # Fail-soft: renvoyer une liste vide pour ne pas casser le front
         return {
             "key": key,
             "from": frm,
             "to": to,
             "aggregation": agg,
             "bucket_ms": bucket_ms,
-            "points": points,
+            "points": [],
+            "error": str(e),
         }
-    except Exception as e:
-        # On renvoie l'erreur au client, utile pour diagnostiquer clé manquante ou mauvais paramètres
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/mrange")
