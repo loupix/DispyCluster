@@ -34,6 +34,7 @@ from web.api.monitoring import router as monitoring_router
 from web.api.tests import router as tests_router
 from web.api.metrics_cache import router as metrics_cache_router
 from web.api.graphs import router as graphs_router
+from web.api.metrics_ts import router as metrics_ts_router
 
 # Importer les vues intelligentes
 from web.views.cluster_view import ClusterView
@@ -105,6 +106,7 @@ app.include_router(monitoring_router)
 app.include_router(tests_router)
 app.include_router(metrics_cache_router)
 app.include_router(graphs_router)
+app.include_router(metrics_ts_router)
 
 # Initialiser les vues intelligentes
 cluster_view = ClusterView()
