@@ -76,14 +76,18 @@ async def _collect_metrics_async():
                     if "cpu_usage" in metrics:
                         xadd("metrics:ingest", {"metric": "cpu.usage", "value": str(metrics["cpu_usage"]), "labels": json.dumps(labels)}, maxlen_approx=200000)
                         # Ecriture directe TS (en parallèle du Stream)
-                        ts_add("ts:cpu.usage", float(metrics["cpu_usage"]), labels_if_create={"metric": "cpu.usage", "host": node})
+                        # Série globale pour compatibilité
+                        ts_add("ts:cpu.usage", float(metrics["cpu_usage"]), labels_if_create={"metric": "cpu.usage", "host": "all"})
+                        # Série par hôte pour multi-séries
+                        ts_key_per_host = f"ts:cpu.usage:host:{node}"
+                        ts_add(ts_key_per_host, float(metrics["cpu_usage"]), labels_if_create={"metric": "cpu.usage", "host": node})
                     if "memory_usage" in metrics:
                         xadd("metrics:ingest", {"metric": "memory.usage", "value": str(metrics["memory_usage"]), "labels": json.dumps(labels)}, maxlen_approx=200000)
                         ts_add("ts:memory.usage", float(metrics["memory_usage"]), labels_if_create={"metric": "memory.usage", "host": node})
                     if "disk_usage" in metrics:
                         xadd("metrics:ingest", {"metric": "disk.usage", "value": str(metrics["disk_usage"]), "labels": json.dumps(labels)}, maxlen_approx=200000)
                         ts_add("ts:disk.usage", float(metrics["disk_usage"]), labels_if_create={"metric": "disk.usage", "host": node})
-                    if "temperature" in metrics and metrics["temperature"]:
+                    if "temperature" in metrics and metrics["temperature"] is not None:
                         xadd("metrics:ingest", {"metric": "temperature", "value": str(metrics["temperature"]), "labels": json.dumps(labels)}, maxlen_approx=200000)
                         ts_add("ts:temperature", float(metrics["temperature"]), labels_if_create={"metric": "temperature", "host": node})
                 except Exception as stream_err:
@@ -157,9 +161,17 @@ def _parse_node_exporter_metrics(metrics_text: str, node: str) -> Dict[str, Any]
         
         # Temperature
         elif 'node_thermal_zone_temp' in line:
-            metrics['temperature'] = float(line.split()[-1])
+            temp_val = float(line.split()[-1])
+            if temp_val > 0:
+                metrics['temperature'] = temp_val
         elif 'node_hwmon_temp_celsius' in line:
-            metrics['temperature'] = float(line.split()[-1])
+            temp_val = float(line.split()[-1])
+            if temp_val > 0:
+                metrics['temperature'] = temp_val
+    
+    # Initialiser température à None si absente
+    if 'temperature' not in metrics:
+        metrics['temperature'] = None
     
     # Calculer l'utilisation CPU
     if node in cpu_prev_cache:

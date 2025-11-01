@@ -93,7 +93,21 @@
         const cpuCanvas = document.getElementById('cpu-chart');
         const memCanvas = document.getElementById('memory-chart');
         const tempCanvas = document.getElementById('temp-chart');
-        if (!cpuCanvas || !memCanvas || !tempCanvas) return;
+        
+        // Si les canvas n'existent pas, détruire les charts existants et retourner
+        if (!cpuCanvas || !memCanvas || !tempCanvas) {
+            window.App.logger.debug('[NODES.JS] Canvas non trouvés, nettoyage des charts');
+            cleanupCharts();
+            return;
+        }
+        
+        // Vérifier que les canvas sont toujours dans le DOM (et pas détachés)
+        if (!document.body.contains(cpuCanvas) || !document.body.contains(memCanvas) || !document.body.contains(tempCanvas)) {
+            window.App.logger.debug('[NODES.JS] Canvas détachés du DOM, nettoyage des charts');
+            cleanupCharts();
+            return;
+        }
+        
         const now = Date.now();
         if (now - lastChartsUpdateTs < 1200) return;
         lastChartsUpdateTs = now;
@@ -108,48 +122,127 @@
             scales: { y: { beginAtZero: true, suggestedMax: 100 } },
             plugins: { legend: { display: false } }
         };
+        
+        // CPU Chart
         if (!cpuChart) {
             ensureCanvasFree(cpuCanvas);
-            cpuChart = new Chart(cpuCanvas.getContext('2d'), {
-                type: 'bar',
-                data: { labels, datasets: [{ label: 'CPU', data: cpuData, backgroundColor: 'rgba(251,191,36,0.8)' }] },
-                options: commonOptions
-            });
+            try {
+                cpuChart = new Chart(cpuCanvas.getContext('2d'), {
+                    type: 'bar',
+                    data: { labels, datasets: [{ label: 'CPU', data: cpuData, backgroundColor: 'rgba(251,191,36,0.8)' }] },
+                    options: commonOptions
+                });
+            } catch (err) {
+                window.App.logger.error('[NODES.JS] Erreur création CPU chart:', err);
+                cpuChart = null;
+            }
         } else {
-            cpuChart.data.labels = labels;
-            cpuChart.data.datasets[0].data = cpuData;
-            cpuChart.update('none');
+            // Vérifier que le canvas du chart existe toujours
+            if (!cpuChart.canvas || !document.body.contains(cpuChart.canvas)) {
+                window.App.logger.debug('[NODES.JS] CPU chart canvas détaché, destruction');
+                cpuChart.destroy();
+                cpuChart = null;
+            } else {
+                try {
+                    cpuChart.data.labels = labels;
+                    cpuChart.data.datasets[0].data = cpuData;
+                    cpuChart.update('none');
+                } catch (err) {
+                    window.App.logger.error('[NODES.JS] Erreur mise à jour CPU chart:', err);
+                    cleanupCharts();
+                }
+            }
         }
+        
+        // Memory Chart
         if (!memoryChart) {
             ensureCanvasFree(memCanvas);
-            memoryChart = new Chart(memCanvas.getContext('2d'), {
-                type: 'bar',
-                data: { labels, datasets: [{ label: 'Mémoire', data: memData, backgroundColor: 'rgba(147,51,234,0.8)' }] },
-                options: commonOptions
-            });
+            try {
+                memoryChart = new Chart(memCanvas.getContext('2d'), {
+                    type: 'bar',
+                    data: { labels, datasets: [{ label: 'Mémoire', data: memData, backgroundColor: 'rgba(147,51,234,0.8)' }] },
+                    options: commonOptions
+                });
+            } catch (err) {
+                window.App.logger.error('[NODES.JS] Erreur création Memory chart:', err);
+                memoryChart = null;
+            }
         } else {
-            memoryChart.data.labels = labels;
-            memoryChart.data.datasets[0].data = memData;
-            memoryChart.update('none');
+            if (!memoryChart.canvas || !document.body.contains(memoryChart.canvas)) {
+                window.App.logger.debug('[NODES.JS] Memory chart canvas détaché, destruction');
+                memoryChart.destroy();
+                memoryChart = null;
+            } else {
+                try {
+                    memoryChart.data.labels = labels;
+                    memoryChart.data.datasets[0].data = memData;
+                    memoryChart.update('none');
+                } catch (err) {
+                    window.App.logger.error('[NODES.JS] Erreur mise à jour Memory chart:', err);
+                    cleanupCharts();
+                }
+            }
         }
+        
+        // Temperature Chart
         if (!tempChart) {
             ensureCanvasFree(tempCanvas);
-            tempChart = new Chart(tempCanvas.getContext('2d'), {
-                type: 'bar',
-                data: { labels, datasets: [{ label: 'Température', data: tempData, backgroundColor: 'rgba(239,68,68,0.8)' }] },
-                options: {...commonOptions, scales: { y: { beginAtZero: true } } }
-            });
+            try {
+                tempChart = new Chart(tempCanvas.getContext('2d'), {
+                    type: 'bar',
+                    data: { labels, datasets: [{ label: 'Température', data: tempData, backgroundColor: 'rgba(239,68,68,0.8)' }] },
+                    options: {...commonOptions, scales: { y: { beginAtZero: true } } }
+                });
+            } catch (err) {
+                window.App.logger.error('[NODES.JS] Erreur création Temp chart:', err);
+                tempChart = null;
+            }
         } else {
-            tempChart.data.labels = labels;
-            tempChart.data.datasets[0].data = tempData;
-            tempChart.update('none');
+            if (!tempChart.canvas || !document.body.contains(tempChart.canvas)) {
+                window.App.logger.debug('[NODES.JS] Temp chart canvas détaché, destruction');
+                tempChart.destroy();
+                tempChart = null;
+            } else {
+                try {
+                    tempChart.data.labels = labels;
+                    tempChart.data.datasets[0].data = tempData;
+                    tempChart.update('none');
+                } catch (err) {
+                    window.App.logger.error('[NODES.JS] Erreur mise à jour Temp chart:', err);
+                    cleanupCharts();
+                }
+            }
         }
     }
 
     function cleanupCharts() {
-        if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
-        if (memoryChart) { memoryChart.destroy(); memoryChart = null; }
-        if (tempChart) { tempChart.destroy(); tempChart = null; }
+        try {
+            if (cpuChart) { 
+                cpuChart.destroy(); 
+                cpuChart = null; 
+            }
+        } catch (e) {
+            window.App.logger.warn('[NODES.JS] Erreur destruction CPU chart:', e);
+            cpuChart = null;
+        }
+        try {
+            if (memoryChart) { 
+                memoryChart.destroy(); 
+                memoryChart = null; 
+            }
+        } catch (e) {
+            window.App.logger.warn('[NODES.JS] Erreur destruction Memory chart:', e);
+            memoryChart = null;
+        }
+        try {
+            if (tempChart) { 
+                tempChart.destroy(); 
+                tempChart = null; 
+            }
+        } catch (e) {
+            window.App.logger.warn('[NODES.JS] Erreur destruction Temp chart:', e);
+            tempChart = null;
+        }
     }
 
     function onNodesPage() {

@@ -134,7 +134,8 @@ docker-compose.override.yml
 id_rsa*
 id_ed25519*
 
-# Celery (supprimé mais garde pour compatibilité)
+# Celery
+celerybeat-schedule
 celerybeat-schedule.bak
 celerybeat-schedule.dat
 celerybeat-schedule.dir

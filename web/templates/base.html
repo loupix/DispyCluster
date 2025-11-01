@@ -49,18 +49,19 @@
         }
         
         .nav-link {
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             border-radius: 8px;
         }
         
         .nav-link:hover {
-            background: rgba(59, 130, 246, 0.1);
-            transform: translateX(4px);
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
         }
         
         .nav-link.active {
-            background: rgba(59, 130, 246, 0.2);
-            color: var(--primary);
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
         
         .status-online { color: var(--success); }
@@ -98,68 +99,178 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+        
+        /* Barre de chargement en haut */
+        #page-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            z-index: 9999;
+            display: none;
+            background: rgba(0, 0, 0, 0.05);
+            backdrop-filter: blur(4px);
+        }
+        
+        #page-loader.active {
+            display: block;
+        }
+        
+        #page-loader .progress-bar {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, 
+                #3b82f6 0%, 
+                #8b5cf6 25%, 
+                #ec4899 50%, 
+                #8b5cf6 75%, 
+                #3b82f6 100%);
+            background-size: 300% 100%;
+            animation: progress-animation 1.2s ease-in-out infinite;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.6),
+                        0 0 20px rgba(139, 92, 246, 0.4),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #page-loader .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                rgba(255, 255, 255, 0.3) 50%, 
+                transparent 100%);
+            animation: shimmer 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes progress-animation {
+            0% {
+                background-position: 0% 0;
+                width: 0%;
+            }
+            50% {
+                width: 75%;
+            }
+            100% {
+                background-position: 300% 0;
+                width: 100%;
+            }
+        }
+        
+        @keyframes shimmer {
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(200%);
+            }
+        }
     </style>
 </head>
 <body>
+    <!-- Barre de chargement en haut -->
+    <div id="page-loader">
+        <div class="progress-bar"></div>
+    </div>
+    
     <!-- Navigation -->
-    <nav class="glass fixed top-0 left-0 right-0 z-50 px-6 py-4" hx-boost="true" hx-push-url="true">
-        <div class="max-w-7xl mx-auto flex items-center justify-between">
-            <div class="flex items-center space-x-4">
-                <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                    <i class="fas fa-server text-white text-lg"></i>
+    <nav class="glass fixed top-0 left-0 right-0 z-50 border-b border-white/10 backdrop-blur-xl" hx-boost="true" hx-push-url="true">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <!-- Logo et titre -->
+                <div class="flex items-center space-x-3">
+                    <div class="w-12 h-12 bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 rounded-xl flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform duration-200">
+                        <i class="fas fa-server text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-white tracking-tight">DispyCluster</h1>
+                        <p class="text-xs text-white/70 hidden sm:block">Cluster Management</p>
+                    </div>
                 </div>
-                <h1 class="text-2xl font-bold text-white">DispyCluster</h1>
+                
+                <!-- Menu desktop -->
+                <div class="hidden md:flex items-center space-x-2">
+                    <a href="/" class="nav-link group relative px-4 py-2.5 text-white/90 hover:text-white rounded-lg transition-all duration-200 {% if request.url.path == '/' %}active bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-tachometer-alt mr-2"></i>
+                        <span class="font-medium">Dashboard</span>
+                        <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 to-purple-400 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-200 {% if request.url.path == '/' %}scale-x-100{% endif %}"></span>
+                    </a>
+                    <a href="/nodes" class="nav-link group relative px-4 py-2.5 text-white/90 hover:text-white rounded-lg transition-all duration-200 {% if request.url.path == '/nodes' %}active bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-server mr-2"></i>
+                        <span class="font-medium">Nœuds</span>
+                        <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 to-purple-400 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-200 {% if request.url.path == '/nodes' %}scale-x-100{% endif %}"></span>
+                    </a>
+                    <a href="/jobs" class="nav-link group relative px-4 py-2.5 text-white/90 hover:text-white rounded-lg transition-all duration-200 {% if request.url.path == '/jobs' %}active bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-tasks mr-2"></i>
+                        <span class="font-medium">Jobs</span>
+                        <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 to-purple-400 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-200 {% if request.url.path == '/jobs' %}scale-x-100{% endif %}"></span>
+                    </a>
+                    <a href="/monitoring" class="nav-link group relative px-4 py-2.5 text-white/90 hover:text-white rounded-lg transition-all duration-200 {% if request.url.path == '/monitoring' %}active bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-chart-line mr-2"></i>
+                        <span class="font-medium">Monitoring</span>
+                        <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 to-purple-400 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-200 {% if request.url.path == '/monitoring' %}scale-x-100{% endif %}"></span>
+                    </a>
+                    <a href="/tests" class="nav-link group relative px-4 py-2.5 text-white/90 hover:text-white rounded-lg transition-all duration-200 {% if request.url.path == '/tests' %}active bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-vial mr-2"></i>
+                        <span class="font-medium">Tests</span>
+                        <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-400 to-purple-400 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-200 {% if request.url.path == '/tests' %}scale-x-100{% endif %}"></span>
+                    </a>
+                </div>
+                
+                <!-- Status et menu mobile -->
+                <div class="flex items-center space-x-4">
+                    <div class="hidden lg:flex items-center space-x-3 px-4 py-2 rounded-lg bg-white/5 border border-white/10">
+                        <span class="text-white/70 text-sm font-medium">Status:</span>
+                        <span id="cluster-status" class="px-3 py-1 rounded-full text-xs font-semibold bg-green-500/20 text-green-300 border border-green-500/30 backdrop-blur-sm flex items-center space-x-1.5">
+                            <i class="fas fa-circle text-[8px] animate-pulse"></i>
+                            <span>En ligne</span>
+                        </span>
+                    </div>
+                    <button class="md:hidden text-white hover:text-white/80 transition-colors p-2 rounded-lg hover:bg-white/10" onclick="toggleMobileMenu()" aria-label="Menu">
+                        <i class="fas fa-bars text-xl"></i>
+                    </button>
+                </div>
             </div>
             
-            <div class="hidden md:flex items-center space-x-1">
-                <a href="/" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/' %}active{% endif %}">
-                    <i class="fas fa-tachometer-alt mr-2"></i>Dashboard
-                </a>
-                <a href="/nodes" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/nodes' %}active{% endif %}">
-                    <i class="fas fa-server mr-2"></i>Nœuds
-                </a>
-                <a href="/jobs" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/jobs' %}active{% endif %}">
-                    <i class="fas fa-tasks mr-2"></i>Jobs
-                </a>
-                <a href="/monitoring" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/monitoring' %}active{% endif %}">
-                    <i class="fas fa-chart-line mr-2"></i>Monitoring
-                </a>
-                <a href="/tests" class="nav-link px-4 py-2 text-white hover:text-blue-200 {% if request.url.path == '/tests' %}active{% endif %}">
-                    <i class="fas fa-vial mr-2"></i>Tests
-                </a>
-            </div>
-            
-            <div class="flex items-center space-x-4">
-                <div class="hidden md:block">
-                    <span class="text-white text-sm">Status:</span>
-                    <span id="cluster-status" class="ml-2 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        <i class="fas fa-circle mr-1"></i>En ligne
-                    </span>
+            <!-- Menu mobile -->
+            <div id="mobile-menu" class="md:hidden mt-4 hidden pt-4 border-t border-white/10">
+                <div class="flex flex-col space-y-2">
+                    <a href="/" class="nav-link px-4 py-3 text-white/90 hover:text-white rounded-lg hover:bg-white/10 transition-all duration-200 flex items-center {% if request.url.path == '/' %}bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-tachometer-alt mr-3 w-5"></i>
+                        <span class="font-medium">Dashboard</span>
+                    </a>
+                    <a href="/nodes" class="nav-link px-4 py-3 text-white/90 hover:text-white rounded-lg hover:bg-white/10 transition-all duration-200 flex items-center {% if request.url.path == '/nodes' %}bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-server mr-3 w-5"></i>
+                        <span class="font-medium">Nœuds</span>
+                    </a>
+                    <a href="/jobs" class="nav-link px-4 py-3 text-white/90 hover:text-white rounded-lg hover:bg-white/10 transition-all duration-200 flex items-center {% if request.url.path == '/jobs' %}bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-tasks mr-3 w-5"></i>
+                        <span class="font-medium">Jobs</span>
+                    </a>
+                    <a href="/monitoring" class="nav-link px-4 py-3 text-white/90 hover:text-white rounded-lg hover:bg-white/10 transition-all duration-200 flex items-center {% if request.url.path == '/monitoring' %}bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-chart-line mr-3 w-5"></i>
+                        <span class="font-medium">Monitoring</span>
+                    </a>
+                    <a href="/tests" class="nav-link px-4 py-3 text-white/90 hover:text-white rounded-lg hover:bg-white/10 transition-all duration-200 flex items-center {% if request.url.path == '/tests' %}bg-white/10 text-white{% endif %}">
+                        <i class="fas fa-vial mr-3 w-5"></i>
+                        <span class="font-medium">Tests</span>
+                    </a>
                 </div>
-                <button class="md:hidden text-white" onclick="toggleMobileMenu()">
-                    <i class="fas fa-bars text-xl"></i>
-                </button>
-            </div>
-        </div>
-        
-        <!-- Menu mobile -->
-        <div id="mobile-menu" class="md:hidden mt-4 hidden">
-            <div class="flex flex-col space-y-2">
-                <a href="/" class="nav-link px-4 py-2 text-white rounded-lg">
-                    <i class="fas fa-tachometer-alt mr-2"></i>Dashboard
-                </a>
-                <a href="/nodes" class="nav-link px-4 py-2 text-white rounded-lg">
-                    <i class="fas fa-server mr-2"></i>Nœuds
-                </a>
-                <a href="/jobs" class="nav-link px-4 py-2 text-white rounded-lg">
-                    <i class="fas fa-tasks mr-2"></i>Jobs
-                </a>
-                <a href="/monitoring" class="nav-link px-4 py-2 text-white rounded-lg">
-                    <i class="fas fa-chart-line mr-2"></i>Monitoring
-                </a>
-                <a href="/tests" class="nav-link px-4 py-2 text-white rounded-lg">
-                    <i class="fas fa-vial mr-2"></i>Tests
-                </a>
+                <div class="mt-4 pt-4 border-t border-white/10">
+                    <div class="flex items-center justify-between px-4">
+                        <span class="text-white/70 text-sm font-medium">Status:</span>
+                        <span id="cluster-status-mobile" class="px-3 py-1 rounded-full text-xs font-semibold bg-green-500/20 text-green-300 border border-green-500/30 backdrop-blur-sm flex items-center space-x-1.5">
+                            <i class="fas fa-circle text-[8px] animate-pulse"></i>
+                            <span>En ligne</span>
+                        </span>
+                    </div>
+                </div>
             </div>
         </div>
     </nav>
@@ -244,6 +355,37 @@
         // Initialiser WebSocket pour les mises à jour en temps réel
         // Ici, on supprime dès la ligne 245 jusqu'à initWebSocket() et ses usages, pour ne plus jamais déclarer 'let wsSocket = ...' dans base.html
         
+        // Barre de chargement pour les changements de page
+        // Utiliser window pour éviter les redéclarations lors des swaps HTMX
+        if (!window.pageLoaderInitialized) {
+            window.pageLoaderInitialized = true;
+            
+            function showPageLoader() {
+                const loader = document.getElementById('page-loader');
+                if (loader) {
+                    loader.classList.add('active');
+                }
+            }
+            
+            function hidePageLoader() {
+                const loader = document.getElementById('page-loader');
+                if (loader) {
+                    setTimeout(() => {
+                        loader.classList.remove('active');
+                    }, 300);
+                }
+            }
+            
+            // Afficher la barre lors du début d'une requête HTMX
+            document.body.addEventListener('htmx:beforeRequest', showPageLoader);
+            
+            // Masquer la barre après le chargement
+            document.body.addEventListener('htmx:afterSettle', hidePageLoader);
+            
+            // Masquer aussi en cas d'erreur
+            document.body.addEventListener('htmx:responseError', hidePageLoader);
+        }
+        
         // Remplacer le polling XHR par WebSocket /health
         document.addEventListener('DOMContentLoaded', () => {
             // initWebSocket(); // Supprimé
@@ -251,14 +393,22 @@
                 const healthSocket = io('/health');
                 healthSocket.on('health_update', (data) => {
                     const statusElement = document.getElementById('cluster-status');
-                    if (!statusElement) return;
+                    const statusMobile = document.getElementById('cluster-status-mobile');
                     const ok = data && data.overall_status === 'healthy';
-                    statusElement.className = ok
-                        ? 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800'
-                        : 'ml-2 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800';
-                    statusElement.innerHTML = ok
-                        ? '<i class="fas fa-circle mr-1"></i>En ligne'
-                        : '<i class="fas fa-circle mr-1"></i>Hors ligne';
+                    const statusClass = ok 
+                        ? 'px-3 py-1 rounded-full text-xs font-semibold bg-green-500/20 text-green-300 border border-green-500/30 backdrop-blur-sm flex items-center space-x-1.5'
+                        : 'px-3 py-1 rounded-full text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30 backdrop-blur-sm flex items-center space-x-1.5';
+                    const statusHtml = ok
+                        ? '<i class="fas fa-circle text-[8px] animate-pulse"></i><span>En ligne</span>'
+                        : '<i class="fas fa-circle text-[8px] animate-pulse"></i><span>Hors ligne</span>';
+                    if (statusElement) {
+                        statusElement.className = statusClass;
+                        statusElement.innerHTML = statusHtml;
+                    }
+                    if (statusMobile) {
+                        statusMobile.className = statusClass;
+                        statusMobile.innerHTML = statusHtml;
+                    }
                 });
             } catch (e) {}
         });

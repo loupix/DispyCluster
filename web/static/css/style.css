@@ -204,6 +204,7 @@
 @media (max-width: 768px) {
     .card {
         margin-bottom: 1rem;
+        padding: 1rem;
     }
     
     .metric-card {
@@ -212,6 +213,31 @@
     
     .glass {
         backdrop-filter: blur(5px);
+    }
+    
+    .chart-wrapper {
+        height: 250px !important;
+        min-height: 200px !important;
+        position: relative;
+        overflow: visible;
+    }
+    
+    .chart-wrapper canvas {
+        max-width: 100% !important;
+    }
+    
+    .card h3 {
+        font-size: 0.9rem;
+    }
+    
+    .card .flex.items-center.justify-between {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    
+    .card select {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
     }
 }
 

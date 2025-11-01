@@ -68,9 +68,25 @@ async def get_ts_mrange(
     Exemple: filters=metric=cpu.usage&filters=host=node13.lan
     """
     try:
-        series = ts_mrange(frm, to, filters, aggregation=agg, bucket_ms=bucket_ms)
-        return {"from": frm, "to": to, "filters": filters, "aggregation": agg, "bucket_ms": bucket_ms, "series": series}
+        # Sanitize params
+        agg_val = (agg or None)
+        try:
+            bucket_val = int(bucket_ms) if bucket_ms is not None else None
+        except Exception:
+            bucket_val = None
+        
+        series = ts_mrange(frm, to, filters, aggregation=agg_val, bucket_ms=bucket_val)
+        return {"from": frm, "to": to, "filters": filters, "aggregation": agg_val, "bucket_ms": bucket_val, "series": series}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Fail-soft: renvoyer une liste vide pour ne pas casser le front
+        return {
+            "from": frm,
+            "to": to,
+            "filters": filters,
+            "aggregation": agg,
+            "bucket_ms": bucket_ms,
+            "series": [],
+            "error": str(e),
+        }
 
 

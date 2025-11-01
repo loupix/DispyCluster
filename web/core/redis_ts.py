@@ -95,6 +95,7 @@ def ts_add(
     """Ajoute un point (timestamp,value) dans une série TS.
 
     - Crée la série à la volée si elle n'existe pas (avec labels/rétention).
+    - Si la série existe mais n'a pas de labels et que labels_if_create est fourni, les ajoute.
     - timestamp_ms: si None, utilise l'horodatage actuel en ms.
     """
     client = get_redis_client()
@@ -103,6 +104,18 @@ def ts_add(
         if not has_timeseries():
             return ts
         added_ts = client.execute_command("TS.ADD", key, ts, value)
+        # Vérifier si la série existe mais n'a pas de labels, et les ajouter si besoin
+        if labels_if_create:
+            try:
+                info = client.execute_command("TS.INFO", key)
+                # info[19] est l'index des labels dans la réponse TS.INFO
+                existing_labels = info[19] if len(info) > 19 else []
+                if not existing_labels or len(existing_labels) == 0:
+                    # La série existe mais n'a pas de labels, on les ajoute
+                    ts_alter(key, labels=labels_if_create)
+            except Exception:
+                # Si TS.INFO échoue, on ignore (série n'existe peut-être pas encore)
+                pass
         return int(added_ts)
     except redis.ResponseError as e:
         if "TSDB: the key does not exist" in str(e):
@@ -110,6 +123,28 @@ def ts_add(
             ts_create(key, labels=labels_if_create, retention_ms=retention_ms_if_create)
             added_ts = client.execute_command("TS.ADD", key, ts, value)
             return int(added_ts)
+        raise
+
+
+def ts_alter(key, labels=None):
+    """Modifie les labels d'une série existante avec TS.ALTER.
+    
+    - labels: dict de labels à ajouter/modifier (ex: {"metric": "cpu.usage", "host": "node13.lan"}).
+    """
+    if not has_timeseries():
+        return False
+    client = get_redis_client()
+    args = ["TS.ALTER", key]
+    if labels:
+        args.append("LABELS")
+        for k, v in labels.items():
+            args.extend([k, str(v)])
+    try:
+        client.execute_command(*args)
+        return True
+    except redis.ResponseError as e:
+        if "TSDB: the key does not exist" in str(e):
+            return False
         raise
 
 
@@ -227,7 +262,13 @@ def ts_mrange(
     else:
         args.append(str(filters))
 
-    raw = client.execute_command(*args)
+    try:
+        raw = client.execute_command(*args)
+    except redis.ResponseError as e:
+        # Si aucune série ou module TSDB absent, retourner une liste vide
+        if "TSDB" in str(e) or "unknown command" in str(e).lower():
+            return []
+        raise
     # Format: [[key, [[label, value]...], [[ts,val]...]], ...]
     result = []
     for serie in raw:
